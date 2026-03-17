@@ -255,14 +255,27 @@ const StudentDirectory: React.FC = () => {
     const [editing, setEditing] = useState<Student | null>(null);
 
     useEffect(() => {
-        const fetch = async () => {
+        const fetchAll = async () => {
             setLoading(true);
             try {
-                let q = supabase.from('students').select('*').order('sr_no').range(0, 9999);
-                if (statusFilter !== 'All') q = q.eq('status', statusFilter);
-                const { data, error } = await q;
-                if (error) throw error;
-                setStudents(data || []);
+                let all: Student[] = [];
+                const PAGE = 1000;
+                let from = 0;
+                while (true) {
+                    let q = supabase
+                        .from('students')
+                        .select('*')
+                        .order('sr_no')
+                        .range(from, from + PAGE - 1);
+                    if (statusFilter !== 'All') q = q.eq('status', statusFilter);
+                    const { data, error } = await q;
+                    if (error) throw error;
+                    if (!data || data.length === 0) break;
+                    all = [...all, ...data];
+                    if (data.length < PAGE) break;   // last page
+                    from += PAGE;
+                }
+                setStudents(all);
             } catch (err: any) {
                 console.error('Fetch error:', err);
                 setStudents([]);
@@ -270,19 +283,14 @@ const StudentDirectory: React.FC = () => {
                 setLoading(false);
             }
         };
-        fetch();
+        fetchAll();
     }, [statusFilter]);
 
     const filtered = students.filter((s) => {
         const q = search.trim().toLowerCase();
-        const isNumeric = /^\d+$/.test(q);
-        const matchSearch = isNumeric
-            ? String(s.sr_no) === q                                  // exact SR No. match
-            || (s.roll_no || '') === q                              // exact roll no. match
-            || (s.phone || '').includes(q)                         // phone partial ok
-            : s.name.toLowerCase().includes(q) ||
-            (s.father_name || '').toLowerCase().includes(q) ||
-            (s.phone || '').includes(q);
+        const matchSearch = !q ||
+            String(s.sr_no) === q ||                        // exact SR No. match
+            s.name.toLowerCase().includes(q);               // name partial match
         const matchClass = classFilter === 'All' || (s.class || '').toLowerCase() === classFilter.toLowerCase();
         return matchSearch && matchClass;
     });

@@ -4,15 +4,14 @@ import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
 import { ArrowLeft, ArrowRight, Check, Loader2, UserPlus } from 'lucide-react';
 
-const CLASSES = ['Nursery', 'LKG', 'UKG', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
-const SECTIONS = ['A', 'B', 'C', 'D'];
+const CLASSES = ['Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN'];
 const STEPS = ['Personal Info', 'Family & Contact', 'Academic & Other'];
 
 const emptyForm = {
     sr_no: '' as unknown as number,
     roll_no: '',
     name: '',
-    class: 'One',
+    class: 'ONE A',
     dob: '',
     admission_date: new Date().toISOString().split('T')[0],
     gender: 'male' as 'male' | 'female' | 'other',
