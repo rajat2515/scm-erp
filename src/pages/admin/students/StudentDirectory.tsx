@@ -251,6 +251,7 @@ const StudentDirectory: React.FC = () => {
     const [search, setSearch] = useState('');
     const [classFilter, setClassFilter] = useState('All');
     const [statusFilter, setStatusFilter] = useState('active');
+    const [rteFilter, setRteFilter] = useState('All');
     const [selected, setSelected] = useState<Student | null>(null);
     const [editing, setEditing] = useState<Student | null>(null);
 
@@ -292,7 +293,10 @@ const StudentDirectory: React.FC = () => {
             String(s.sr_no) === q ||                        // exact SR No. match
             s.name.toLowerCase().includes(q);               // name partial match
         const matchClass = classFilter === 'All' || (s.class || '').toLowerCase() === classFilter.toLowerCase();
-        return matchSearch && matchClass;
+        const matchRte = rteFilter === 'All'
+            || (rteFilter === 'YES' && ['yes', 'YES', 'rte', 'RTE'].includes(s.rte || ''))
+            || (rteFilter === 'NO' && !['yes', 'YES', 'rte', 'RTE'].includes(s.rte || ''));
+        return matchSearch && matchClass && matchRte;
     });
 
     const handleDelete = async (sr_no: number) => {
@@ -391,6 +395,16 @@ const StudentDirectory: React.FC = () => {
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                     <option value="transferred">Transferred (TC)</option>
+                </select>
+                {/* RTE filter */}
+                <select
+                    value={rteFilter}
+                    onChange={(e) => setRteFilter(e.target.value)}
+                    className="px-4 py-2.5 rounded-xl border border-input bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                    <option value="All">All RTE</option>
+                    <option value="YES">✓ RTE Only</option>
+                    <option value="NO">Non-RTE Only</option>
                 </select>
                 {/* Email All Button */}
                 <button
