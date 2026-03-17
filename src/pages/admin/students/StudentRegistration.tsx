@@ -18,6 +18,7 @@ const emptyForm = {
     gender: 'male' as 'male' | 'female' | 'other',
     mother_name: '',
     father_name: '',
+    father_income: null as unknown as number,
     address: '',
     phone: '',
     email: '',
@@ -170,6 +171,10 @@ const StudentRegistration: React.FC = () => {
                             <div>
                                 <label className={lc}>Father's Name *</label>
                                 <input value={form.father_name} onChange={(e) => update('father_name', e.target.value)} className={ic} placeholder="Father's full name" />
+                            </div>
+                            <div>
+                                <label className={lc}>Father's Income</label>
+                                <input type="number" value={form.father_income || ''} onChange={(e) => update('father_income', e.target.value ? Number(e.target.value) : null!)} className={ic} placeholder="Annual income" />
                             </div>
                             <div>
                                 <label className={lc}>Mother's Name</label>

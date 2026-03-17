@@ -21,6 +21,7 @@ export interface Student {
     gender: 'male' | 'female' | 'other';
     mother_name?: string;
     father_name?: string;
+    father_income?: number | null;
     address?: string;
     phone?: string;
     email?: string;
