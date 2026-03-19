@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
-import { Search, Filter, Eye, Trash2, Users, Pencil, X, UserPlus, Save, Mail, Download } from 'lucide-react';
+import { Search, Filter, Eye, Trash2, Users, Pencil, X, UserPlus, Save, Download } from 'lucide-react';
 import type { Student } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -254,6 +254,7 @@ const StudentDirectory: React.FC = () => {
     const [rteFilter, setRteFilter] = useState('All');
     const [selected, setSelected] = useState<Student | null>(null);
     const [editing, setEditing] = useState<Student | null>(null);
+    const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'sr_no', direction: 'asc' | 'desc' }>({ key: 'sr_no', direction: 'asc' });
 
     useEffect(() => {
         const fetchAll = async () => {
@@ -297,6 +298,14 @@ const StudentDirectory: React.FC = () => {
             || (rteFilter === 'YES' && ['yes', 'YES', 'rte', 'RTE'].includes(s.rte || ''))
             || (rteFilter === 'NO' && !['yes', 'YES', 'rte', 'RTE'].includes(s.rte || ''));
         return matchSearch && matchClass && matchRte;
+    }).sort((a, b) => {
+        if (sortConfig.key === 'name') {
+            const res = (a.name || '').localeCompare(b.name || '');
+            return sortConfig.direction === 'asc' ? res : -res;
+        } else {
+            const res = a.sr_no - b.sr_no;
+            return sortConfig.direction === 'asc' ? res : -res;
+        }
     });
 
     const handleDelete = async (sr_no: number) => {
@@ -406,19 +415,20 @@ const StudentDirectory: React.FC = () => {
                     <option value="YES">✓ RTE Only</option>
                     <option value="NO">Non-RTE Only</option>
                 </select>
-                {/* Email All Button */}
-                <button
-                    onClick={() => {
-                        const emails = filtered.map(s => s.email).filter(Boolean);
-                        if (emails.length === 0) return alert('No students found with an email address in the current filter.');
-                        window.location.href = `mailto:?bcc=${emails.join(',')}`;
+                {/* Sort dropdown */}
+                <select
+                    value={`${sortConfig.key}-${sortConfig.direction}`}
+                    onChange={(e) => {
+                        const [key, direction] = e.target.value.split('-');
+                        setSortConfig({ key: key as 'name' | 'sr_no', direction: direction as 'asc' | 'desc' });
                     }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-medium hover:bg-muted transition-all flex-shrink-0"
-                    title="Send an email (BCC) to all visible students"
+                    className="px-4 py-2.5 rounded-xl border border-input bg-background text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
-                    <Mail className="w-4 h-4" />
-                    <span className="hidden lg:inline">Email All</span>
-                </button>
+                    <option value="sr_no-asc">Sort: SR No. (Asc)</option>
+                    <option value="sr_no-desc">Sort: SR No. (Desc)</option>
+                    <option value="name-asc">Sort: Name (A-Z)</option>
+                    <option value="name-desc">Sort: Name (Z-A)</option>
+                </select>
                 {/* Download Excel Button */}
                 <button
                     onClick={downloadExcel}
