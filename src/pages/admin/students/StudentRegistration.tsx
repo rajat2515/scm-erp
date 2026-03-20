@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
@@ -42,6 +42,34 @@ const StudentRegistration: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
+
+    useEffect(() => {
+        const fetchLatestSrNo = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('students')
+                    .select('sr_no')
+                    .order('sr_no', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (error) {
+                    console.error("Error fetching latest SR No:", error);
+                    return;
+                }
+                
+                if (data && data.sr_no) {
+                    setForm(prev => ({ ...prev, sr_no: Number(data.sr_no) + 1 }));
+                } else {
+                    setForm(prev => ({ ...prev, sr_no: 1 }));
+                }
+            } catch (err) {
+                console.error("Failed to fetch latest SR No:", err);
+            }
+        };
+
+        fetchLatestSrNo();
+    }, []);
 
     const update = (field: string, value: string | number) =>
         setForm((prev) => ({ ...prev, [field]: value }));
