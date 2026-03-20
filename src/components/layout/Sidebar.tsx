@@ -56,8 +56,8 @@ const Sidebar: React.FC = () => {
         >
             {/* Logo */}
             <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10">
-                <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain p-0.5" />
+                <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+                    <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain" />
                 </div>
                 {!collapsed && (
                     <div className="animate-fade-in overflow-hidden">

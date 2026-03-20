@@ -75,8 +75,8 @@ const LoginPage: React.FC = () => {
                     Logo + school name in a single horizontal row to save vertical space.
                 */}
                 <div className="flex xs:hidden items-center gap-3 mb-4">
-                    <div className="w-12 h-12 flex-shrink-0 bg-white rounded-xl flex items-center justify-center overflow-hidden shadow-[0_0_10px_rgba(255,255,255,0.2)]">
-                        <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain p-0.5" />
+                    <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
+                        <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain" />
                     </div>
                     <div>
                         <h1 className="font-bold text-sm tracking-wide uppercase leading-tight">S.C.M. CHILDREN ACADEMY</h1>
@@ -90,8 +90,8 @@ const LoginPage: React.FC = () => {
                     Full centered logo + stacked text.
                 */}
                 <div className="hidden xs:flex flex-col items-center gap-4 mb-8 text-center">
-                    <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center overflow-hidden flex-shrink-0 shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                        <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain p-1" />
+                    <div className="w-24 h-24 flex items-center justify-center flex-shrink-0">
+                        <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain" />
                     </div>
                     <div>
                         <h1 className="font-bold text-2xl tracking-wide uppercase leading-tight mb-1">S.C.M. CHILDREN ACADEMY</h1>
