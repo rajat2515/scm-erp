@@ -23,7 +23,7 @@ const NAV_ITEMS: NavItem[] = [
     { label: 'Staff Directory', icon: UserCheck, path: '/admin/staff', roles: ['admin'] },
     { label: 'Staff Attendance', icon: CalendarCheck, path: '/admin/staff-attendance', roles: ['admin'] },
     { label: 'Gate Pass', icon: FileBadge, path: '/admin/gate-pass', roles: ['admin'] },
-    { label: 'Fee Ledger', icon: DollarSign, path: '/admin/fees', roles: ['admin'] },
+    { label: 'Fee Management', icon: DollarSign, path: '/admin/fees', roles: ['admin'] },
     { label: 'Report Cards', icon: FileText, path: '/admin/reports', roles: ['admin'] },
     // Teacher
     { label: 'My Dashboard', icon: LayoutDashboard, path: '/teacher', roles: ['teacher'] },
@@ -55,8 +55,8 @@ const Sidebar: React.FC = () => {
             style={{ background: 'hsl(var(--sidebar-bg))' }}
         >
             {/* Logo */}
-            <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10">
-                <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+            <div className={`flex items-center border-b border-white/10 transition-all duration-300 ${collapsed ? 'justify-center py-4 px-2' : 'gap-3 px-4 py-4'}`}>
+                <div className={`flex items-center justify-center flex-shrink-0 transition-all duration-300 ${collapsed ? 'w-10 h-10' : 'w-12 h-12'}`}>
                     <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain" />
                 </div>
                 {!collapsed && (

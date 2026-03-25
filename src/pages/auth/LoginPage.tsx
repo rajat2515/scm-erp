@@ -75,7 +75,7 @@ const LoginPage: React.FC = () => {
                     Logo + school name in a single horizontal row to save vertical space.
                 */}
                 <div className="flex xs:hidden items-center gap-3 mb-4">
-                    <div className="w-16 h-16 flex-shrink-0 flex items-center justify-center">
+                    <div className="w-20 h-20 flex-shrink-0 flex items-center justify-center">
                         <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain" />
                     </div>
                     <div>
@@ -90,7 +90,7 @@ const LoginPage: React.FC = () => {
                     Full centered logo + stacked text.
                 */}
                 <div className="hidden xs:flex flex-col items-center gap-4 mb-8 text-center">
-                    <div className="w-24 h-24 flex items-center justify-center flex-shrink-0">
+                    <div className="w-32 h-32 flex items-center justify-center flex-shrink-0">
                         <img src="/school-logo.png" alt="Logo" className="w-full h-full object-contain" />
                     </div>
                     <div>

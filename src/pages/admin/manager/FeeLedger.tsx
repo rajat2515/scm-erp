@@ -2,9 +2,12 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
 import {
-    Search, Printer, CheckCircle2, AlertCircle,
-    BookOpen, Users, TrendingDown, ChevronDown, X, Loader2,
+    Search, Printer, CheckCircle2, AlertCircle, Trash2,
+    BookOpen, Users, TrendingDown, ChevronDown, X, Loader2, Bus, Settings2,
 } from 'lucide-react';
+import TransportFeeTab from './TransportFeeTab';
+import FeeStructureTab from './FeeStructureTab';
+import { CLASSES } from '../students/StudentDirectory';
 
 /* ─── Constants ──────────────────────────────────────────── */
 const ANNUAL_FEE = 1200;
@@ -66,7 +69,7 @@ interface Student {
     address?: string; phone?: string; roll_no?: string;
     rte?: string; status?: string;
 }
-interface PayRec { sr_no: number; month: string; due_amount: number; paid_amount: number; paid_on?: string; mode: string; }
+interface PayRec { id?: number; created_at?: string; sr_no: number; month: string; due_amount: number; paid_amount: number; paid_on?: string; mode: string; discount?: number; }
 interface FeeStructure { class: string; monthly_fee: number; }
 
 /* ─── Helpers ────────────────────────────────────────────── */
@@ -83,112 +86,15 @@ function monthlyFee(student: Student | null, feeStr: FeeStructure[]): number {
 }
 
 /* ─── Batch Collect Modal ──────────────────────────────────── */
-const BatchCollectModal: React.FC<{
-    items: { def: FeeRowDef; due: number; paid: number }[];
-    student: Student;
-    onClose: () => void;
-    onSaved: () => void;
-}> = ({ items, student, onClose, onSaved }) => {
-    const totalDue = items.reduce((s, i) => s + i.due, 0);
-    const totalPaid = items.reduce((s, i) => s + i.paid, 0);
-    const balance = Math.max(0, totalDue - totalPaid);
 
-    const [amount, setAmount] = useState(String(balance));
-    const [payMode, setPayMode] = useState<'cash' | 'online' | 'cheque'>('cash');
-    const [saving, setSaving] = useState(false);
-    const [err, setErr] = useState('');
 
-    const save = async () => {
-        let remaining = parseInt(amount);
-        if (isNaN(remaining) || remaining <= 0) { setErr('Enter a valid amount'); return; }
-        setSaving(true);
-
-        const updates = [];
-        for (const item of items) {
-            if (remaining <= 0) break;
-            const itemBal = Math.max(0, item.due - item.paid);
-            if (itemBal === 0) continue;
-            
-            const allocate = Math.min(itemBal, remaining);
-            remaining -= allocate;
-            
-            updates.push({
-                sr_no: student.sr_no,
-                month: item.def.key,
-                due_amount: item.due,
-                paid_amount: item.paid + allocate,
-                paid_on: new Date().toISOString().split('T')[0],
-                mode: payMode,
-            });
-        }
-
-        if (updates.length > 0) {
-            const { error } = await supabase.from('fee_payments').upsert(updates, { onConflict: 'sr_no,month' });
-            if (error) { setErr(error.message); setSaving(false); return; }
-        }
-        
-        setSaving(false);
-        onSaved(); onClose();
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-card border border-border rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="font-semibold">Collect Payment</h3>
-                    <button onClick={onClose}><X className="w-4 h-4" /></button>
-                </div>
-
-                <div className="bg-muted/40 rounded-xl p-3 text-sm space-y-0.5">
-                    <p className="font-medium">{student.name} · SR {student.sr_no}</p>
-                    <p className="text-muted-foreground">Collecting {items.length} selected row(s)</p>
-                    <div className="flex gap-4 mt-1">
-                        <span>Total Due: <strong>{fmtINR(totalDue)}</strong></span>
-                        <span>Balance: <strong className="text-red-600">{fmtINR(balance)}</strong></span>
-                    </div>
-                </div>
-
-                {err && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{err}</p>}
-
-                <div>
-                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Amount Receiving (₹)</label>
-                    <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        autoFocus />
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                    {(['cash', 'online', 'cheque'] as const).map(m => (
-                        <button key={m} onClick={() => setPayMode(m)}
-                            className={`py-2 rounded-xl text-xs font-medium border transition-all capitalize ${payMode === m
-                                ? 'gradient-primary text-white border-transparent shadow-md'
-                                : 'border-border text-muted-foreground hover:border-primary/40'}`}>
-                            {m}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                    <button onClick={onClose} className="py-2.5 rounded-xl border border-border text-sm hover:bg-muted transition-colors">Cancel</button>
-                    <button onClick={save} disabled={saving}
-                        className="py-2.5 rounded-xl gradient-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-1.5">
-                        {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                        {saving ? 'Saving…' : 'Record ✓'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-/* ─── Student Fee Card ───────────────────────────────────── */
-const StudentFeeCard: React.FC<{
+/* ─── Student Fee Table ────────────────────────────────────── */
+const StudentFeeTable: React.FC<{
     student: Student; feeStr: FeeStructure[];
-    payments: PayRec[]; onCollectSelected: () => void;
-    onPrint: () => void;
+    payments: PayRec[];
     selectedKeys: Set<string>;
     onToggleKey: (key: string) => void;
-}> = ({ student, feeStr, payments, onCollectSelected, onPrint, selectedKeys, onToggleKey }) => {
+}> = ({ student, feeStr, payments, selectedKeys, onToggleKey }) => {
     const isRTE = ['yes', 'rte'].includes((student.rte || '').toLowerCase());
     const tuition = monthlyFee(student, feeStr);
     const payMap = new Map(payments.map(p => [p.month, p]));
@@ -206,291 +112,195 @@ const StudentFeeCard: React.FC<{
     const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
     const totalBal = totalDue - totalPaid;
 
-    const rowBg = (r: typeof rows[0]) => {
-        if (r.type === 'annual') return 'bg-blue-50/50 dark:bg-blue-950/20';
-        if (r.type === 'exam') return 'bg-amber-50/50 dark:bg-amber-950/20';
-        return '';
+    const annualRows = rows.filter(r => r.type === 'annual');
+    const examRows = rows.filter(r => r.type === 'exam');
+    const tuitionRows = rows.filter(r => r.type === 'tuition');
+
+    const renderPill = (r: typeof rows[0], forceWide = false) => {
+        const isPaid = r.paid >= r.due && r.due > 0;
+        const isRTEZero = r.due === 0 && r.paid === 0;
+        const isSelected = selectedKeys.has(r.key);
+        const isDisabled = isPaid || isRTEZero;
+
+        return (
+            <button
+                key={r.key}
+                disabled={isDisabled}
+                onClick={() => onToggleKey(r.key)}
+                className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl border transition-all text-center ${forceWide ? 'col-span-12 sm:col-span-6' : ''} ${
+                    isPaid
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-600 opacity-60 cursor-not-allowed'
+                        : isRTEZero
+                            ? 'bg-muted/30 border-border text-muted-foreground opacity-50 cursor-not-allowed'
+                            : isSelected
+                                ? 'gradient-primary text-white border-transparent shadow-md select-none'
+                                : 'bg-background hover:border-primary/40 border-border text-foreground hover:bg-muted/10 select-none'
+                }`}
+            >
+                <span className="text-xs font-bold truncate max-w-full px-1">{r.label}</span>
+                <span className={`text-[10px] mt-0.5 ${isSelected ? 'text-white/80' : 'text-muted-foreground'}`}>
+                    {isPaid ? 'Paid' : isRTEZero ? '—' : `₹${r.balance}`}
+                </span>
+            </button>
+        );
     };
 
-    const allKeys = rows.map(r => r.key);
-    const allSelected = allKeys.every(k => selectedKeys.has(k));
-
     return (
-        <div className="space-y-4">
-            {/* Student Header Card */}
-            <div className="bg-card border border-border rounded-2xl p-5">
-                <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-black text-lg flex-shrink-0">
-                            {student.name.charAt(0)}
-                        </div>
-                        <div>
-                            <h2 className="font-bold text-lg text-foreground">{student.name}</h2>
-                            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-0.5">
-                                <span>SR <strong className="text-foreground">{student.sr_no}</strong></span>
-                                {student.roll_no && <span>Roll <strong className="text-foreground">{student.roll_no}</strong></span>}
-                                <span>Class <strong className="text-foreground">{student.class}</strong></span>
-                                {student.father_name && <span>Father: <strong className="text-foreground">{student.father_name}</strong></span>}
-                                {student.mother_name && <span>Mother: <strong className="text-foreground">{student.mother_name}</strong></span>}
-                                {student.phone && <span>📞 {student.phone}</span>}
-                            </div>
-                            {student.address && <p className="text-xs text-muted-foreground mt-0.5">📍 {student.address}</p>}
-                        </div>
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-sm space-y-6">
+            
+            {annualRows.length > 0 && (
+                <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 flex items-center justify-between">
+                        <span>Annual Charges</span>
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {annualRows.map(r => renderPill(r))}
                     </div>
-                    <div className="flex flex-col items-end gap-2">
-                        {selectedKeys.size > 0 && (
-                            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                                {selectedKeys.size} row{selectedKeys.size !== 1 ? 's' : ''} selected
-                            </span>
-                        )}
-                        <div className="flex items-center gap-2">
-                            {selectedKeys.size > 0 && (
-                                <button
-                                    onClick={onCollectSelected}
-                                    className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-white text-sm font-medium hover:opacity-90 transition-all flex-shrink-0"
-                                >
-                                    Collect Selected
-                                </button>
-                            )}
-                            <button
-                                onClick={onPrint}
-                                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors flex-shrink-0"
-                            >
-                                <Printer className="w-4 h-4" />
-                                Print
-                            </button>
+                </div>
+            )}
+
+            {tuitionRows.length > 0 && (
+                <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 flex items-center justify-between">
+                        <span>Tuition Fee (Monthly)</span>
+                        <div className="flex gap-3 text-[10px]">
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-200 block"></span> Paid</span>
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full border border-border block"></span> Unpaid</span>
+                            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full gradient-primary block"></span> Selected</span>
                         </div>
+                    </label>
+                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                        {tuitionRows.map(r => renderPill(r))}
                     </div>
+                </div>
+            )}
+
+            {examRows.length > 0 && (
+                <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Examination Fees</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {examRows.map(r => renderPill(r))}
+                    </div>
+                </div>
+            )}
+
+            <div className="pt-4 border-t border-border flex flex-wrap items-center justify-between gap-4 text-sm mt-2">
+                <div><span className="text-muted-foreground mr-2 text-xs">Total Due:</span><span className="font-semibold">{fmtINR(totalDue)}</span></div>
+                <div><span className="text-muted-foreground mr-2 text-xs">Paid:</span><span className="font-semibold text-emerald-600">{fmtINR(totalPaid)}</span></div>
+                <div><span className="text-muted-foreground mr-2 text-xs">Balance:</span><span className="font-bold text-red-600">{fmtINR(totalBal)}</span></div>
+                <div>
+                    {totalBal === 0 && totalDue > 0
+                        ? <span className="text-emerald-600 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-md">✓ All Clear</span>
+                        : <span className="text-red-600 text-xs bg-red-50 px-2 py-1 rounded-md">{totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0}% collected</span>}
                 </div>
             </div>
 
-            {/* Fee Table */}
-            <div className="bg-card border border-border rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
-                    <thead>
-                        <tr className="border-b border-border bg-muted/30">
-                            {/* Select-all checkbox */}
-                            <th className="px-3 py-3">
-                                <input
-                                    type="checkbox"
-                                    checked={allSelected}
-                                    onChange={() => {
-                                        if (allSelected) allKeys.forEach(k => onToggleKey(k));
-                                        else allKeys.filter(k => !selectedKeys.has(k)).forEach(k => onToggleKey(k));
-                                    }}
-                                    className="w-4 h-4 accent-primary cursor-pointer"
-                                    title={allSelected ? 'Deselect all' : 'Select all'}
-                                />
-                            </th>
-                            <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Fee Item</th>
-                            <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Due</th>
-                            <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Paid</th>
-                            <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Balance</th>
-                            <th className="text-center px-4 py-3 font-semibold text-muted-foreground">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                        {rows.map(r => (
-                            <tr
-                                key={r.key}
-                                className={`hover:bg-muted/20 transition-colors ${rowBg(r)} ${r.divider ? 'border-t-2 border-border' : ''} ${selectedKeys.has(r.key) ? 'ring-inset ring-1 ring-primary/30' : ''}`}
-                            >
-                                {/* Checkbox */}
-                                <td className="px-3 py-2.5">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedKeys.has(r.key)}
-                                        onChange={() => onToggleKey(r.key)}
-                                        className="w-4 h-4 accent-primary cursor-pointer"
-                                    />
-                                </td>
-                                <td className="px-4 py-2.5">
-                                    <span className={`font-medium ${r.type === 'exam' ? 'text-amber-700 dark:text-amber-400' : r.type === 'annual' ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>
-                                        {r.label}
-                                    </span>
-                                </td>
-                                <td className="px-4 py-2.5 text-right text-muted-foreground">{fmtINR(r.due)}</td>
-                                <td className="px-4 py-2.5 text-right font-medium text-emerald-600">{r.paid > 0 ? fmtINR(r.paid) : '—'}</td>
-                                <td className="px-4 py-2.5 text-right font-medium">
-                                    {r.balance === 0 && r.paid > 0 ? (
-                                        <span className="text-emerald-600">✓ Clear</span>
-                                    ) : (
-                                        <span className="text-red-600">{fmtINR(r.balance)}</span>
-                                    )}
-                                </td>
-                                <td className="px-4 py-2.5 text-center">
-                                    {r.paid >= r.due && r.paid > 0
-                                        ? <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Paid</span>
-                                        : r.paid > 0
-                                            ? <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 border border-amber-200 font-semibold">Partial</span>
-                                            : <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 border border-red-200 font-semibold">Unpaid</span>}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                    <tfoot>
-                        <tr className="border-t-2 border-border bg-muted/30 font-semibold">
-                            <td className="px-3 py-3"></td>
-                            <td className="px-4 py-3 text-foreground">Total (2025–26)</td>
-                            <td className="px-4 py-3 text-right">{fmtINR(totalDue)}</td>
-                            <td className="px-4 py-3 text-right text-emerald-600">{fmtINR(totalPaid)}</td>
-                            <td className="px-4 py-3 text-right text-red-600">{fmtINR(totalBal)}</td>
-                            <td className="px-4 py-3 text-center">
-                                {totalBal === 0
-                                    ? <span className="text-emerald-600 font-bold">✓ All Clear</span>
-                                    : <span className="text-red-600">{Math.round((totalPaid / totalDue) * 100)}% collected</span>}
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
         </div>
     );
 };
 
+/* ─── PRINT RECEIPT COMPONENTS ───────────────────────────── */
 
-const PrintFeeCard: React.FC<{
-    student: Student; feeStr: FeeStructure[];
-    payments: PayRec[];
+export interface FeeReceiptData {
+    student: Student;
+    items: { label: string; amount: number }[];
+    subtotal: number;
     discount: number;
-    transportFee: number;
-    selectedKeys: Set<string>;
-}> = ({ student, feeStr, payments, discount, transportFee, selectedKeys }) => {
-    const tuition = monthlyFee(student, feeStr);
-    const payMap = new Map(payments.map(p => [p.month, p]));
+    grandTotal: number;
+    receiptNo?: string;
+    paymentDate: string;
+    paymentMode: string;
+}
 
-    const isRTE = ['yes', 'rte'].includes((student.rte || '').toLowerCase());
-    const monthDue = isRTE ? 0 : tuition;
-
-    // Each row has a corresponding BASE_FEE_ROWS key (null for transport which is special)
-    const rows = [
-        { label: 'A.C.Rec.', bg: '#00FFFF', due: ANNUAL_FEE,              rowKey: 'Annual Fee 2025-26' },
-        { label: 'Apr',      bg: '#f5e6e6', due: monthDue,                 rowKey: 'April 2025' },
-        { label: 'May',      bg: '#f5e6e6', due: monthDue,                 rowKey: 'May 2025' },
-        { label: 'Jun',      bg: '#f5e6e6', due: monthDue,                 rowKey: 'June 2025' },
-        { label: 'July',     bg: '#e8e6d1', due: monthDue,                 rowKey: 'July 2025' },
-        { label: 'Aug',      bg: '#e8e6d1', due: monthDue,                 rowKey: 'August 2025' },
-        { label: 'Sep',      bg: '#e8e6d1', due: monthDue,                 rowKey: 'September 2025' },
-        { label: 'EXAM FEE1',bg: '#fedcb3', due: EXAM_FEE,                 rowKey: 'Exam Fee Term 1' },
-        { label: 'Oct',      bg: '#e6ebf5', due: monthDue,                 rowKey: 'October 2025' },
-        { label: 'Nov',      bg: '#e6ebf5', due: monthDue,                 rowKey: 'November 2025' },
-        { label: 'Dec',      bg: '#e6ebf5', due: monthDue,                 rowKey: 'December 2025' },
-        { label: 'Jan',      bg: '#e6ebf5', due: monthDue,                 rowKey: 'January 2026' },
-        { label: 'Feb',      bg: '#e6ebf5', due: monthDue,                 rowKey: 'February 2026' },
-        { label: 'Mar',      bg: '#e6ebf5', due: monthDue,                 rowKey: 'March 2026' },
-        { label: 'EXAM FEE2',bg: '#fedcb3', due: EXAM_FEE,                 rowKey: 'Exam Fee Term 2' },
-        { label: 'Transport Fee', bg: '#e6ebf5', due: isRTE ? 0 : transportFee, rowKey: '__transport__' },
-    ];
-
-    // If nothing is selected, show all amounts (fallback). Otherwise only show selected.
-    const showAmount = (key: string) => selectedKeys.size === 0 || selectedKeys.has(key);
-
-    const totalFee = rows.reduce((s, r) => s + r.due, 0);
-    const totalPaid = payments.reduce((s, p) => s + p.paid_amount, 0); // Include all payments
-
-    const netFee = totalFee - discount;
-    const balance = Math.max(0, netFee - totalPaid);
+const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) => {
+    if (!data) return null;
 
     return (
-        <div id="fee-print-area" style={{ display: 'none', fontFamily: 'Arial, sans-serif', padding: '12mm 15mm', color: '#000', backgroundColor: '#fff' }}>
-            {/* Header matches Excel format exactly */}
-            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 16, marginBottom: 8, borderBottom: '2px solid #000', paddingBottom: 4 }}>
-                STUDENT FEE CARD 2025-26
+        <div id="fee-receipt-print-area" style={{ display: 'none', fontFamily: 'Arial, sans-serif', padding: '8mm 12mm', color: '#000', background: '#fff' }}>
+            {/* School Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: '2px solid #000', paddingBottom: 8, marginBottom: 10 }}>
+                <img src="/school-logo.png" alt="Logo" style={{ width: 60, height: 60, objectFit: 'contain' }} />
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ fontWeight: 900, fontSize: 18, letterSpacing: 1, textTransform: 'uppercase' }}>
+                        S.C.M. CHILDREN ACADEMY
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 2 }}>Affiliation No: 2132374 | School Code: 81858</div>
+                    <div style={{ fontSize: 11 }}>HALDAUR, BIJNOR</div>
+                </div>
             </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, fontFamily: 'Arial, sans-serif' }}>
-                <tbody>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', width: '30%', fontWeight: 'bold' }}>Roll. No.</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold', backgroundColor: '#FFFF00', color: '#FF0000', textAlign: 'center' }}>
-                            {(student.roll_no && student.roll_no !== '0') ? student.roll_no : '—'}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold' }}>Name of Student:</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold', color: '#104d82', textTransform: 'uppercase' }}>
-                            {student.name}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold' }}>Class :</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold', color: '#104d82', textTransform: 'uppercase' }}>
-                            {student.class}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold' }}>Mother's Name:</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold', color: '#104d82', textTransform: 'uppercase' }}>
-                            {student.mother_name || '—'}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold' }}>Father's Name:</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold', color: '#104d82', textTransform: 'uppercase' }}>
-                            {student.father_name || '—'}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold' }}>Res. Address:</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', fontWeight: 'bold', color: '#104d82', textTransform: 'uppercase' }}>
-                            {student.address || '—'}
-                        </td>
-                    </tr>
-                    
-                    {/* FEE DETAIL TITLE */}
-                    <tr>
-                        <td colSpan={2} style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', fontSize: 15 }}>
-                            FEE DETAIL
-                        </td>
-                    </tr>
+            {/* Receipt Title */}
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 15, textDecoration: 'underline', marginBottom: 10 }}>
+                FEE RECEIPT
+            </div>
 
-                    {/* FEE ROWS */}
-                    {rows.map((r, i) => (
-                        <tr key={i}>
-                            <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: r.bg, color: r.label === 'A.C.Rec.' ? '#000' : '#104d82' }}>
-                                {r.label}
-                            </td>
-                            <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}>
-                                {showAmount(r.rowKey) && r.due > 0 ? r.due.toFixed(2) : '—'}
-                            </td>
+            {/* Receipt meta */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 10 }}>
+                <div><strong>Receipt No:</strong> {data.receiptNo || 'N/A'}</div>
+                <div><strong>Date:</strong> {data.paymentDate}</div>
+                <div><strong>Mode:</strong> {data.paymentMode.toUpperCase()}</div>
+            </div>
+
+            {/* Student Details */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 10 }}>
+                <tbody>
+                    {[
+                        ['Student Name', data.student.name.toUpperCase()],
+                        ['SR No.', String(data.student.sr_no)],
+                        ['Class', data.student.class],
+                        ["Father's Name", data.student.father_name || '—'],
+                    ].map(([label, val]) => (
+                        <tr key={label}>
+                            <td style={{ border: '1px solid #aaa', padding: '4px 8px', fontWeight: 'bold', width: '35%', background: '#f5f5f5' }}>{label}</td>
+                            <td style={{ border: '1px solid #aaa', padding: '4px 8px', color: '#104d82', fontWeight: 'bold' }}>{val}</td>
                         </tr>
                     ))}
+                </tbody>
+            </table>
 
-                    {/* STATIC FOOTER ROWS */}
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#8aaee0', color: '#104d82' }}>LAST DUE</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}></td>
+            {/* Fee Details */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+                <thead>
+                    <tr style={{ background: '#daeaf7' }}>
+                        <th style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'left' }}>Description</th>
+                        <th style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right' }}>Amount (₹)</th>
                     </tr>
+                </thead>
+                <tbody>
+                    {data.items.map((it, idx) => (
+                        <tr key={idx}>
+                            <td style={{ border: '1px solid #aaa', padding: '5px 8px' }}>{it.label}</td>
+                            <td style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right', fontWeight: 'bold' }}>₹{it.amount.toFixed(2)}</td>
+                        </tr>
+                    ))}
                     <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#8aaee0', color: '#104d82' }}>CLEAR LAST DUE</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}></td>
+                        <td style={{ border: '1px solid #aaa', padding: '5px 8px' }}>Subtotal</td>
+                        <td style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}>₹{data.subtotal.toFixed(2)}</td>
                     </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#8aaee0', color: '#104d82' }}>LESS</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}>
-                            {discount > 0 ? discount.toFixed(2) : ''}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#8aaee0', color: '#104d82' }}>TOTAL FEE</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}>
-                            {netFee.toFixed(2)}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#8aaee0', color: '#104d82' }}>TOTAL PAID</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}>
-                            {totalPaid > 0 ? totalPaid.toFixed(2) : ''}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', backgroundColor: '#8aaee0', color: '#104d82' }}>BALANCE</td>
-                        <td style={{ border: '1px solid #000', padding: '4px 8px', textAlign: 'right', fontWeight: 'bold', color: '#104d82' }}>
-                            {balance.toFixed(2)}
-                        </td>
+                    {data.discount > 0 && (
+                        <tr style={{ background: '#fce7f3' }}>
+                            <td style={{ border: '1px solid #aaa', padding: '5px 8px' }}>Discount</td>
+                            <td style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right', color: '#db2777', fontWeight: 'bold' }}>
+                                -₹{data.discount.toFixed(2)}
+                            </td>
+                        </tr>
+                    )}
+                    <tr style={{ background: '#d1fae5' }}>
+                        <td style={{ border: '1px solid #aaa', padding: '5px 8px', fontWeight: 900, fontSize: 14 }}>GRAND TOTAL</td>
+                        <td style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right', fontWeight: 900, fontSize: 14, color: '#065f46' }}>₹{data.grandTotal.toFixed(2)}</td>
                     </tr>
                 </tbody>
             </table>
+
+            {/* Signature */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, fontSize: 11 }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid #000', width: 120, paddingTop: 4 }}>Parent / Guardian</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid #000', width: 120, paddingTop: 4 }}>Cashier</div>
+                </div>
+            </div>
         </div>
     );
 };
@@ -498,49 +308,88 @@ const PrintFeeCard: React.FC<{
 /* ─── Collect Fee Tab ────────────────────────────────────── */
 const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const [query, setQuery] = useState('');
+    const [classFilter, setClassFilter] = useState('');
     const [results, setResults] = useState<Student[]>([]);
     const [selected, setSelected] = useState<Student | null>(null);
     const [payments, setPayments] = useState<PayRec[]>([]);
-    const [showCollectModal, setShowCollectModal] = useState(false);
     
-    // Print Modal State
-    const [showPrintModal, setShowPrintModal] = useState(false);
-    const [printDiscount, setPrintDiscount] = useState<number>(0);
-    const [printZoneIdx, setPrintZoneIdx] = useState<number>(0);
+    const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
+
+    // Collection Sidebar State
+    const [payMode, setPayMode] = useState<'cash' | 'online' | 'cheque'>('cash');
+    const [payAmount, setPayAmount] = useState('');
+    const [discountInput, setDiscountInput] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [saveMsg, setSaveMsg] = useState<{type: 'ok'|'error', text: string} | null>(null);
 
     const [searching, setSearching] = useState(false);
     const [loadingPay, setLoadingPay] = useState(false);
     const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-    const printRef = useRef<HTMLDivElement>(null);
+
+    // Compute exactly what is due based on selected keys
+    const tuition = selected ? monthlyFee(selected, feeStr) : 0;
+    const isRTE = selected ? ['yes', 'rte'].includes((selected.rte || '').toLowerCase()) : false;
+    const payMap = new Map(payments.map(p => [p.month, p]));
+    
+    const itemsToCollect = Array.from(selectedKeys).map(k => {
+        const r = BASE_FEE_ROWS.find(x => x.key === k)!;
+        const due = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
+        const paid = payMap.get(r.key)?.paid_amount || 0;
+        const disc = payMap.get(r.key)?.discount || 0;
+        return { def: r, due, paid, disc };
+    }).filter(x => (x.due - x.disc) > x.paid);
+
+    const totalDue = itemsToCollect.reduce((s, i) => s + (i.due - i.paid - i.disc), 0);
+    const transactionDiscount = Number(discountInput) || 0;
+    const grandTotal = Math.max(0, totalDue - transactionDiscount);
+
+    // If totalDue changes and hasn't been modified yet, set payAmount to match grandTotal
+    useEffect(() => {
+        if (grandTotal > 0) {
+            setPayAmount(String(grandTotal));
+        } else {
+            setPayAmount('');
+        }
+    }, [grandTotal, selectedKeys]);
+
 
     const toggleKey = (key: string) => {
         setSelectedKeys(prev => {
             const next = new Set(prev);
             if (next.has(key)) next.delete(key); else next.add(key);
+            setSaveMsg(null);
             return next;
         });
     };
 
-    const search = useCallback(async (q: string) => {
-        if (!q.trim()) { setResults([]); return; }
+    const search = useCallback(async (q: string, cls: string) => {
+        if (!q.trim() && !cls) { setResults([]); return; }
         setSearching(true);
         const isNum = /^\d+$/.test(q.trim());
-        let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status');
-        if (isNum) qb = qb.eq('sr_no', parseInt(q));
-        else qb = qb.ilike('name', `%${q}%`);
+        let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status').eq('status', 'active');
+        if (cls) {
+            qb = qb.eq('class', cls);
+        }
+        if (q.trim()) {
+            if (isNum) qb = qb.eq('sr_no', parseInt(q));
+            else qb = qb.ilike('name', `%${q}%`);
+        }
         const { data } = await qb.limit(10);
         setResults(data || []);
         setSearching(false);
     }, []);
 
     useEffect(() => {
-        const t = setTimeout(() => search(query), 300);
+        const t = setTimeout(() => search(query, classFilter), 300);
         return () => clearTimeout(t);
-    }, [query, search]);
+    }, [query, classFilter, search]);
 
     const loadPayments = useCallback(async (srNo: number) => {
         setLoadingPay(true);
-        const { data } = await supabase.from('fee_payments').select('*').eq('sr_no', srNo);
+        const { data } = await supabase.from('fee_payments')
+            .select('*')
+            .eq('sr_no', srNo)
+            .order('created_at', { ascending: false });
         setPayments(data || []);
         setLoadingPay(false);
     }, []);
@@ -549,22 +398,34 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         setSelected(s);
         setQuery(s.name);
         setResults([]);
-        setSelectedKeys(new Set()); // clear selection on new student
+        setSelectedKeys(new Set()); 
+        setSaveMsg(null);
         loadPayments(s.sr_no);
     };
 
-    const handlePrintClick = () => {
-        // Auto-detect zone from student address
-        const detectedIdx = detectZoneIndex(selected?.address);
-        setPrintZoneIdx(detectedIdx);
-        setPrintDiscount(0);
-        setShowPrintModal(true);
-    };
+    const handlePrintReceipt = (receiptNo?: string) => {
+        if (!selected) return;
+        
+        const items = itemsToCollect.map(i => ({
+            label: i.def.label,
+            amount: i.due - i.paid - i.disc
+        }));
 
-    const triggerPrint = () => {
-        setShowPrintModal(false);
+        const receipt: FeeReceiptData = {
+            student: selected,
+            items,
+            subtotal: totalDue,
+            discount: transactionDiscount,
+            grandTotal,
+            receiptNo: receiptNo || 'TUF-PROFORMA',
+            paymentDate: new Date().toISOString().split('T')[0],
+            paymentMode: payMode
+        };
+
+        setPrintData(receipt);
+
         setTimeout(() => {
-            const area = document.getElementById('fee-print-area');
+            const area = document.getElementById('fee-receipt-print-area');
             if (!area) return;
             area.style.display = 'block';
             const cleanup = () => {
@@ -573,172 +434,347 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             };
             window.addEventListener('afterprint', cleanup);
             window.print();
-        }, 100);
+        }, 150);
+    };
+
+    const handleSave = async () => {
+        if (!selected) return;
+        let remaining = parseInt(payAmount);
+        if (isNaN(remaining) || remaining <= 0) { 
+            setSaveMsg({ type: 'error', text: 'Enter a valid amount' }); 
+            return; 
+        }
+        if (itemsToCollect.length === 0) {
+            setSaveMsg({ type: 'error', text: 'Select months to collect' });
+            return;
+        }
+
+        setSaving(true);
+        setSaveMsg(null);
+
+        let totalDiscountPool = transactionDiscount;
+
+        const updates = [];
+        for (const item of itemsToCollect) {
+            if (remaining <= 0 && totalDiscountPool <= 0) break;
+            const itemBal = Math.max(0, item.due - item.paid - item.disc);
+            if (itemBal === 0) continue;
+            
+            // Distribute discount first, then distribute cash remaining
+            const applyDisc = Math.min(itemBal, totalDiscountPool);
+            totalDiscountPool -= applyDisc;
+            const newBalAfterDisc = itemBal - applyDisc;
+
+            const allocate = Math.min(newBalAfterDisc, remaining);
+            remaining -= allocate;
+            
+            updates.push({
+                sr_no: selected.sr_no,
+                month: item.def.key,
+                due_amount: item.due,
+                paid_amount: item.paid + allocate,
+                discount: item.disc + applyDisc,
+                paid_on: new Date().toISOString().split('T')[0],
+                mode: payMode,
+            });
+        }
+
+        if (updates.length > 0) {
+            const { data, error } = await supabase.from('fee_payments').upsert(updates, { onConflict: 'sr_no,month' }).select();
+            if (error) { 
+                setSaveMsg({ type: 'error', text: error.message.includes('discount') 
+                  ? 'Error: The database table "fee_payments" is missing the "discount" column. Please run a SQL migration: ALTER TABLE fee_payments ADD COLUMN discount NUMERIC DEFAULT 0;'
+                  : error.message 
+                }); 
+                setSaving(false); 
+                return; 
+            }
+            
+            setSaving(false);
+            setSaveMsg({ type: 'ok', text: 'Payment recorded successfully' });
+            
+            // Auto print receipt with structured ledger count
+            const { count } = await supabase.from('fee_payments').select('*', { count: 'exact', head: true });
+            const baseId = String(count ?? 1).padStart(5, '0');
+            const receiptId = `TUF-${baseId}`;
+            handlePrintReceipt(receiptId);
+
+            loadPayments(selected.sr_no);
+            setSelectedKeys(new Set());
+            setDiscountInput('');
+            setPayAmount('');
+        } else {
+            setSaving(false);
+        }
+    };
+
+    const handleDeleteReceipt = async (id: number) => {
+        if (!selected) return;
+        if (!confirm('Are you sure you want to delete this payment record? This will revert the month to unpaid.')) return;
+        setSaving(true);
+        const { error } = await supabase.from('fee_payments').delete().eq('id', id);
+        if (error) {
+            alert('Failed to delete payment: ' + error.message);
+        } else {
+            loadPayments(selected.sr_no);
+        }
+        setSaving(false);
     };
 
     return (
-        <div className="space-y-5">
-            {/* FIXED print CSS: visibility:hidden instead of display:none so children can override. @page removes default margins. */}
+        <div className="space-y-5 print:space-y-0">
             <style>{`
-                @page { margin: 10mm; }
+                @page { size: A5 portrait; margin: 10mm; }
                 @media print {
                     body * { visibility: hidden; }
-                    #fee-print-area, #fee-print-area * { visibility: visible !important; }
-                    #fee-print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    #fee-receipt-print-area, #fee-receipt-print-area * { visibility: visible !important; }
+                    #fee-receipt-print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
             `}</style>
 
-            {/* Print Options Modal */}
-            {showPrintModal && selected && (
-                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-card border border-border rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="font-semibold">Print Fee Card</h3>
-                            <button onClick={() => setShowPrintModal(false)}><X className="w-4 h-4" /></button>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">Add temporary charges or discounts just for this print out.</p>
 
-                        <div className="space-y-3 mt-4">
-                            {/* Transport zone auto-detected, user can override */}
-                            <div>
-                                <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                                    Transport Zone
-                                    {printZoneIdx > 0 && <span className="ml-2 text-emerald-600 font-normal">• Auto-detected</span>}
-                                </label>
+            <div className={`grid grid-cols-1 ${selected ? 'lg:grid-cols-12' : ''} gap-6 max-w-7xl mx-auto print:hidden animate-fade-in`}>
+                
+                {/* ── LEFT COLUMN ────────────────────────────── */}
+                <div className={`${selected ? 'lg:col-span-8' : 'w-full max-w-3xl mx-auto'} space-y-5`}>
+                    
+                    {/* Search & Student Info Box */}
+                    <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
+                        <h3 className="font-semibold text-sm text-muted-foreground mb-3 flex items-center gap-2">
+                            <Search className="w-4 h-4" /> Student Selector
+                        </h3>
+                        <div className="flex gap-3">
+                            <div className="w-[140px] flex-shrink-0">
                                 <select
-                                    value={printZoneIdx}
-                                    onChange={e => setPrintZoneIdx(Number(e.target.value))}
-                                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
-                                    {TRANSPORT_ZONES.map((z, i) => (
-                                        <option key={i} value={i}>{z.label}{z.fee > 0 ? ` — ₹${z.fee}` : ''}</option>
+                                    value={classFilter}
+                                    onChange={e => { setClassFilter(e.target.value); if (selected) setSelected(null); }}
+                                    className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shadow-sm appearance-none"
+                                >
+                                    <option value="">All Classes</option>
+                                    {CLASSES.slice(1).map(c => (
+                                        <option key={c} value={c}>{c}</option>
                                     ))}
                                 </select>
-                                {printZoneIdx > 0 && (
-                                    <p className="text-xs text-muted-foreground mt-1">Fee: <strong>₹{TRANSPORT_ZONES[printZoneIdx].fee}</strong></p>
+                            </div>
+                            <div className="relative flex-1">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <input value={query} onChange={e => { setQuery(e.target.value); if (selected) setSelected(null); }}
+                                    placeholder="Search student by name or SR No…"
+                                    className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shadow-sm" />
+                                {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
+                                {results.length > 0 && (
+                                    <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-xl shadow-xl z-20 divide-y divide-border overflow-hidden max-h-64 overflow-y-auto">
+                                        {results.map(s => (
+                                            <button key={s.sr_no} onClick={() => pickStudent(s)}
+                                                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left transition-colors">
+                                                <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                                                    {s.name.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium">{s.name}</p>
+                                                    <p className="text-xs text-muted-foreground">SR {s.sr_no} · Class {s.class}</p>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
                                 )}
                             </div>
-                            <div>
-                                <label className="text-xs font-medium text-muted-foreground mb-1 block">LESS / Discount (₹)</label>
-                                <input type="number" value={printDiscount || ''} onChange={e => setPrintDiscount(Number(e.target.value))} placeholder="0.00"
-                                    className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                            </div>
-                            <div className="flex gap-2">
-                                {[0, 500, 1000].map(amt => (
-                                    <button key={amt} onClick={() => setPrintDiscount(amt)}
-                                        className={`flex-1 py-1 text-xs rounded-lg border ${printDiscount === amt ? 'bg-primary/10 border-primary text-primary font-medium' : 'border-border text-muted-foreground'}`}>
-                                        {amt === 0 ? 'No Discount' : `₹${amt} off`}
-                                    </button>
+                        </div>
+
+                        {selected && (
+                            <div className="mt-4 p-4 bg-muted/40 rounded-xl grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm border border-border/50">
+                                {[
+                                    ['Name', selected.name],
+                                    ['SR No.', String(selected.sr_no)],
+                                    ['Class', selected.class],
+                                    ["Father's Name", selected.father_name || '—'],
+                                    ['Phone', selected.phone || '—'],
+                                    ['Address', selected.address || '—'],
+                                ].map(([label, val]) => (
+                                    <div key={label}>
+                                        <p className="text-xs text-muted-foreground">{label}</p>
+                                        <p className="font-medium truncate">{val}</p>
+                                    </div>
                                 ))}
                             </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 mt-6">
-                            <button onClick={() => setShowPrintModal(false)} className="py-2.5 rounded-xl border border-border text-sm hover:bg-muted transition-colors">Cancel</button>
-                            <button onClick={triggerPrint} className="py-2.5 rounded-xl gradient-primary text-white text-sm font-medium hover:opacity-90 flex items-center justify-center gap-2">
-                                <Printer className="w-4 h-4" /> Preview & Print
-                            </button>
-                        </div>
+                        )}
                     </div>
-                </div>
-            )}
 
-            {/* Search */}
-            <div className="relative max-w-lg">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input value={query} onChange={e => { setQuery(e.target.value); setSelected(null); }}
-                    placeholder="Search student by name or SR No…"
-                    className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 shadow-sm" />
-                {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />}
-                {results.length > 0 && (
-                    <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-xl shadow-xl z-20 divide-y divide-border overflow-hidden max-h-64 overflow-y-auto">
-                        {results.map(s => (
-                            <button key={s.sr_no} onClick={() => pickStudent(s)}
-                                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted text-left transition-colors">
-                                <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                                    {s.name.charAt(0)}
+                    {/* Fee Details Table */}
+                    {selected && (
+                        loadingPay
+                            ? <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center bg-card border border-border rounded-2xl shadow-sm"><Loader2 className="w-5 h-5 animate-spin" /> Loading fee details…</div>
+                            : <>
+                                {selected.status === 'transferred' && (
+                                    <div className="flex items-center gap-3 p-5 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700 shadow-sm">
+                                        <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                                        <div>
+                                            <p className="font-semibold">Transferred / TC Student</p>
+                                            <p className="text-xs text-red-500 mt-0.5">This student has a TC issued. No fee collection applies.</p>
+                                        </div>
+                                    </div>
+                                )}
+                                {selected.status !== 'transferred' && (
+                                    <StudentFeeTable
+                                        student={selected}
+                                        feeStr={feeStr}
+                                        payments={payments}
+                                        selectedKeys={selectedKeys}
+                                        onToggleKey={toggleKey}
+                                    />
+                                )}
+                            </>
+                    )}
+
+                    {!selected && (
+                        <div className="text-center py-20 text-muted-foreground bg-card border border-border rounded-2xl shadow-sm">
+                            <Search className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                            <p className="font-medium">Search a student to view their fee card</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* ── RIGHT COLUMN: SUMMARY & HISTORY ────────────────────────────── */}
+                {selected && selected.status !== 'transferred' && !loadingPay && (
+                    <div className="lg:col-span-4 space-y-5">
+                       
+                        {/* ── SUMMARY & ACTION CARD ─────────────────────── */}
+                        <div className="bg-card border border-border rounded-2xl p-5 shadow-sm sticky top-6">
+                            <h3 className="font-semibold text-sm text-foreground mb-4 flex items-center justify-between">
+                                <span className="flex items-center gap-2"><span className="text-base text-primary mr-1">₹</span> Payment Summary</span>
+                                {selectedKeys.size > 0 && <span className="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-md border border-primary/20">{selectedKeys.size} Selected</span>}
+                            </h3>
+
+                            <div className="space-y-3 pb-4 border-b border-border/60">
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-muted-foreground font-medium">Total Balance</span>
+                                    <span className="font-bold text-red-600 text-base">{fmtINR(totalDue)}</span>
                                 </div>
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="font-medium text-muted-foreground">Transaction Discount</span>
+                                    <div className="relative w-28">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">₹</span>
+                                        <input
+                                            type="number"
+                                            value={discountInput}
+                                            onChange={e => setDiscountInput(e.target.value)}
+                                            className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-border bg-background text-sm font-semibold text-right text-rose-600 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+                                            min={0}
+                                            step={0.01}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="border-t border-border pt-2 flex justify-between items-center">
+                                    <span className="font-bold text-base">Grand Total</span>
+                                    <span className="font-black text-lg text-primary">{fmtINR(grandTotal)}</span>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 space-y-4">
                                 <div>
-                                    <p className="text-sm font-medium">{s.name}</p>
-                                    <p className="text-xs text-muted-foreground">SR {s.sr_no} · Class {s.class}</p>
+                                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Amount Receiving Here</label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">₹</span>
+                                        <input
+                                            type="number"
+                                            value={payAmount}
+                                            onChange={e => { setPayAmount(e.target.value); setSaveMsg(null); }}
+                                            className="w-full pl-7 pr-3 py-2 rounded-xl border border-border bg-background text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground mt-1">Amount will cascade across selected rows automatically.</p>
                                 </div>
-                            </button>
-                        ))}
+
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Payment Mode</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {(['cash', 'online', 'cheque'] as const).map(m => (
+                                            <button key={m} onClick={() => setPayMode(m)}
+                                                className={`py-2 rounded-xl text-xs font-medium border transition-all capitalize ${
+                                                    payMode === m
+                                                        ? 'gradient-primary text-white border-transparent shadow-md'
+                                                        : 'border-border text-muted-foreground hover:border-primary/40'
+                                                }`}>
+                                                {m}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {saveMsg && (
+                                    <div className={`mt-2 flex items-center gap-2 p-3 rounded-xl text-xs ${
+                                        saveMsg.type === 'ok'
+                                            ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                                            : 'bg-red-50 border border-red-200 text-red-700'
+                                    }`}>
+                                        {saveMsg.type === 'ok'
+                                            ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                                            : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+                                        {saveMsg.text}
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={handleSave}
+                                    disabled={saving || itemsToCollect.length === 0}
+                                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl gradient-primary text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-md mt-2"
+                                >
+                                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {!saving && <span>₹</span>}
+                                    {saving ? 'Recording…' : 'Record Payment'}
+                                </button>
+                            </div>
+
+                            {/* Manual Print Action */}
+                            <div className="mt-5 pt-4 border-t border-border/80 text-center">
+                                <button
+                                    onClick={() => handlePrintReceipt()}
+                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors text-muted-foreground"
+                                >
+                                    <Printer className="w-4 h-4" />
+                                    Preview & Print Proforma
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Recent Payments History */}
+                        {payments.length > 0 && (
+                            <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
+                                <h3 className="font-semibold text-sm text-muted-foreground mb-4 flex justify-between items-center">
+                                    <span>Recent Transactions</span>
+                                    <span className="text-xs bg-muted px-2 py-1 rounded text-foreground">{payments.length} items</span>
+                                </h3>
+                                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+                                    {payments.map(p => (
+                                        <div key={p.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/40 border border-border/50 text-sm">
+                                            <div>
+                                                <p className="font-medium py-0.5">{p.month}</p>
+                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                    <span>{new Date(p.created_at || p.paid_on || '').toLocaleDateString()}</span>
+                                                    <span className="w-1 h-1 rounded-full bg-border"></span>
+                                                    <span className="uppercase">{p.mode}</span>
+                                                </div>
+                                            </div>
+                                            <div className="text-right flex items-center justify-end gap-3">
+                                                <p className="font-bold text-emerald-600">{fmtINR(p.paid_amount)}</p>
+                                                {p.id && (
+                                                    <button onClick={() => handleDeleteReceipt(p.id!)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete payment">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* Fee Card */}
-            {selected && (
-                loadingPay
-                    ? <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center"><Loader2 className="w-5 h-5 animate-spin" /> Loading fee details…</div>
-                     : <>
-                        {/* TC / Transferred student warning */}
-                        {selected.status === 'transferred' && (
-                            <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl text-sm text-red-700">
-                                <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                                <div>
-                                    <p className="font-semibold">Transferred / TC Student</p>
-                                    <p className="text-xs text-red-500 mt-0.5">This student has a TC issued. No fee collection applies.</p>
-                                </div>
-                            </div>
-                        )}
-                        {/* Show fee card only for non-transferred students */}
-                        {selected.status !== 'transferred' && (
-                            <StudentFeeCard
-                                student={selected}
-                                feeStr={feeStr}
-                                payments={payments}
-                                onCollectSelected={() => setShowCollectModal(true)}
-                                onPrint={handlePrintClick}
-                                selectedKeys={selectedKeys}
-                                onToggleKey={toggleKey}
-                            />
-                        )}
-                        {/* Hidden print version — always rendered so print works */}
-                        <PrintFeeCard 
-                            student={selected} 
-                            feeStr={feeStr} 
-                            payments={payments} 
-                            discount={printDiscount}
-                            transportFee={TRANSPORT_ZONES[printZoneIdx].fee}
-                            selectedKeys={selectedKeys}
-                        />
-                    </>
-            )}
-
-            {!selected && (
-                <div className="text-center py-20 text-muted-foreground">
-                    <Search className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                    <p className="font-medium">Search a student to view their fee card</p>
-                </div>
-            )}
-
-            {showCollectModal && selected && (() => {
-                const tuition = monthlyFee(selected, feeStr);
-                const payMap = new Map(payments.map(p => [p.month, p]));
-                const isRTE = ['yes', 'rte'].includes((selected.rte || '').toLowerCase());
-                
-                const itemsToCollect = Array.from(selectedKeys).map(k => {
-                    const r = BASE_FEE_ROWS.find(x => x.key === k)!;
-                    const due = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
-                    const paid = payMap.get(r.key)?.paid_amount || 0;
-                    return { def: r, due, paid };
-                }).filter(x => x.due > x.paid); // Only collect items that have a balance
-                
-                if (itemsToCollect.length === 0) {
-                    setShowCollectModal(false);
-                    return null;
-                }
-
-                return (
-                    <BatchCollectModal
-                        items={itemsToCollect}
-                        student={selected}
-                        onClose={() => setShowCollectModal(false)}
-                        onSaved={() => loadPayments(selected.sr_no)}
-                    />
-                );
-            })()}
+            {/* Hidden component simply used by the browser to print the receipt */}
+            <PrintFeeReceipt data={printData} />
         </div>
     );
 };
@@ -748,21 +784,36 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
     const [payments, setPayments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [monthFilter, setMonthFilter] = useState('All');
+    const [classFilter, setClassFilter] = useState('');
     const [search, setSearch] = useState('');
 
     const ALL_MONTHS = BASE_FEE_ROWS.map(r => r.key);
 
+    const loadRecords = async () => {
+        setLoading(true);
+        let q = supabase.from('fee_payments').select(`*, students${classFilter ? '!inner' : ''}(name,class)`).order('created_at', { ascending: false }).range(0, 999);
+        if (monthFilter !== 'All') q = q.eq('month', monthFilter);
+        if (classFilter) q = q.eq('students.class', classFilter);
+        const { data } = await q;
+        setPayments((data || []).map((p: any) => ({ ...p, student_name: p.students?.name || '', student_class: p.students?.class || '' })));
+        setLoading(false);
+    };
+
     useEffect(() => {
-        const load = async () => {
-            setLoading(true);
-            let q = supabase.from('fee_payments').select('*, students(name,class)').order('created_at', { ascending: false }).range(0, 999);
-            if (monthFilter !== 'All') q = q.eq('month', monthFilter);
-            const { data } = await q;
-            setPayments((data || []).map((p: any) => ({ ...p, student_name: p.students?.name || '', student_class: p.students?.class || '' })));
+        loadRecords();
+    }, [monthFilter, classFilter, refresh]);
+
+    const handleDelete = async (id: number) => {
+        if (!confirm('Are you sure you want to delete this payment record?')) return;
+        setLoading(true);
+        const { error } = await supabase.from('fee_payments').delete().eq('id', id);
+        if (error) {
+            alert('Failed to delete transaction: ' + error.message);
             setLoading(false);
-        };
-        load();
-    }, [monthFilter, refresh]);
+        } else {
+            loadRecords();
+        }
+    };
 
     const filtered = payments.filter(p => {
         const q = search.toLowerCase();
@@ -789,12 +840,20 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
             <div className="flex gap-2">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SR…"
                         className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                 </div>
                 <div className="relative">
-                    <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
+                    <select value={classFilter} onChange={e => setClassFilter(e.target.value)}
                         className="pl-3 pr-8 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none appearance-none">
+                        <option value="">All Classes</option>
+                        {CLASSES.slice(1).map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                </div>
+                <div className="relative">
+                    <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
+                        className="pl-3 pr-8 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none appearance-none max-w-[150px] truncate">
                         <option value="All">All Items</option>
                         {ALL_MONTHS.map(m => <option key={m}>{m}</option>)}
                     </select>
@@ -811,8 +870,8 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-muted/30">
-                                    {['Student', 'Fee Item', 'Due', 'Paid', 'Mode', 'Status'].map(h => (
-                                        <th key={h} className={`px-4 py-3 font-medium text-muted-foreground ${['Due', 'Paid'].includes(h) ? 'text-right' : h === 'Status' || h === 'Mode' ? 'text-center' : 'text-left'}`}>{h}</th>
+                                    {['Student', 'Fee Item', 'Due', 'Paid', 'Mode', 'Status', 'Actions'].map(h => (
+                                        <th key={h} className={`px-4 py-3 font-medium text-muted-foreground ${['Due', 'Paid'].includes(h) ? 'text-right' : h === 'Status' || h === 'Mode' ? 'text-center' : h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
                                     ))}
                                 </tr>
                             </thead>
@@ -833,6 +892,9 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                                                 : p.paid_amount > 0
                                                     ? <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 border border-amber-200 font-semibold">Partial</span>
                                                     : <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 border border-red-200 font-semibold">Unpaid</span>}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-right">
+                                            <button onClick={() => handleDelete(p.id)} className="p-1.5 text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-colors" title="Delete record"><Trash2 className="w-4 h-4" /></button>
                                         </td>
                                     </tr>
                                 ))}
@@ -936,11 +998,46 @@ const DefaultersTab: React.FC = () => {
     );
 };
 
+/* ─── Tuition Fee Tab (Merged) ─────────────────────────────── */
+const TuitionFeeTab: React.FC<{ feeStr: FeeStructure[]; refresh: number }> = ({ feeStr, refresh }) => {
+    const [activeTab, setActiveTab] = useState<'collect' | 'ledger'>('collect');
+    
+    return (
+        <div className="animate-fade-in">
+            <div className="flex bg-muted/50 p-1.5 rounded-2xl w-fit mb-6 mx-auto sm:mx-0 print:hidden mt-2">
+                <button
+                    onClick={() => setActiveTab('collect')}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        activeTab === 'collect'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                    }`}
+                >
+                    <span className="font-sans font-bold text-base leading-none">₹</span> Collect Fee
+                </button>
+                <button
+                    onClick={() => setActiveTab('ledger')}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        activeTab === 'ledger'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                    }`}
+                >
+                    <BookOpen className="w-4 h-4" /> Ledger
+                </button>
+            </div>
+            
+            {activeTab === 'collect' && <CollectFeeTab feeStr={feeStr} />}
+            {activeTab === 'ledger' && <LedgerTab refresh={refresh} />}
+        </div>
+    );
+};
+
 /* ─── Main Page ──────────────────────────────────────────── */
-type Tab = 'collect' | 'ledger' | 'defaulters';
+type Tab = 'tuition' | 'defaulters' | 'transport' | 'structure';
 
 const FeeLedger: React.FC = () => {
-    const [tab, setTab] = useState<Tab>('collect');
+    const [tab, setTab] = useState<Tab>('tuition');
     const [feeStr, setFeeStr] = useState<FeeStructure[]>([]);
     const [refresh, setRefresh] = useState(0);
 
@@ -949,25 +1046,27 @@ const FeeLedger: React.FC = () => {
     }, []);
 
     const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-        { id: 'collect', label: 'Collect Fee', icon: <span>₹</span> },
-        { id: 'ledger', label: 'Ledger', icon: <BookOpen className="w-4 h-4" /> },
+        { id: 'tuition', label: 'Tuition Fee', icon: <span className="font-bold text-base leading-none pt-0.5">₹</span> },
         { id: 'defaulters', label: 'Defaulters', icon: <TrendingDown className="w-4 h-4" /> },
+        { id: 'transport', label: 'Transport Fee', icon: <Bus className="w-4 h-4" /> },
+        { id: 'structure', label: 'Fee Structure', icon: <Settings2 className="w-4 h-4" /> },
     ];
 
     return (
         <AppShell title="Fee Management" subtitle="SCM Children Academy · 2025–26">
-            <div className="flex gap-1 p-1 bg-muted rounded-xl mb-6 w-fit">
+            <div className="flex gap-1 p-1 bg-muted rounded-xl mb-6 w-fit overflow-x-auto max-w-full">
                 {TABS.map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+                        className={`flex flex-shrink-0 items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
                         {t.icon}{t.label}
                     </button>
                 ))}
             </div>
 
-            {tab === 'collect' && <CollectFeeTab feeStr={feeStr} />}
-            {tab === 'ledger' && <LedgerTab refresh={refresh} />}
+            {tab === 'tuition' && <TuitionFeeTab feeStr={feeStr} refresh={refresh} />}
             {tab === 'defaulters' && <DefaultersTab />}
+            {tab === 'transport' && <TransportFeeTab />}
+            {tab === 'structure' && <FeeStructureTab />}
         </AppShell>
     );
 };

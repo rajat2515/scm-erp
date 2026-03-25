@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
-import { Search, Printer, FileBadge, Loader2, ClipboardList, Calendar, X } from 'lucide-react';
+import { Search, Printer, FileBadge, Loader2, ClipboardList, Calendar, X, Trash2 } from 'lucide-react';
 import type { Student } from '@/types';
 import GatePassPrintLayout, { GatePassData } from '@/components/print/GatePassPrintLayout';
+
+const CLASSES = ['All', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN', 'TC', 'LS'];
 
 interface GatePassRecord {
     id: string;
@@ -25,6 +27,7 @@ export default function GatePass() {
     const [students, setStudents] = useState<Student[]>([]);
     const [loadingStudents, setLoadingStudents] = useState(true);
     const [searchStudent, setSearchStudent] = useState('');
+    const [searchClass, setSearchClass] = useState('All');
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
     const [parentName, setParentName] = useState('');
@@ -90,11 +93,14 @@ export default function GatePass() {
     };
 
     // --- GENERATE LOGIC ---
-    const filteredStudents = searchStudent === '' ? [] : students.filter(s => 
-        s.name.toLowerCase().includes(searchStudent.toLowerCase()) || 
-        s.sr_no.toString().includes(searchStudent) ||
-        (s.father_name || '').toLowerCase().includes(searchStudent.toLowerCase())
-    ).slice(0, 5);
+    const filteredStudents = (searchStudent === '' && searchClass === 'All') ? [] : students.filter(s => {
+        const matchSearch = searchStudent === '' || 
+            s.name.toLowerCase().includes(searchStudent.toLowerCase()) || 
+            s.sr_no.toString().includes(searchStudent) ||
+            (s.father_name || '').toLowerCase().includes(searchStudent.toLowerCase());
+        const matchClass = searchClass === 'All' || s.class === searchClass;
+        return matchSearch && matchClass;
+    }).slice(0, 5);
 
     const handleSelectStudent = (student: Student) => {
         setSelectedStudent(student);
@@ -161,6 +167,18 @@ export default function GatePass() {
         return `${d}/${m}/${y}`;
     };
 
+    const handleDeleteRecord = async (id: string) => {
+        if (!window.confirm('Are you sure you want to delete this gate pass record?')) return;
+        
+        try {
+            const { error } = await supabase.from('gate_pass_records').delete().eq('id', id);
+            if (error) throw error;
+            setRecords(prev => prev.filter(r => r.id !== id));
+        } catch (err: any) {
+            setRecordsError('Failed to delete record: ' + err.message);
+        }
+    };
+
     return (
         <AppShell title="Gate Pass Management" subtitle="Issue passes and view departure records">
             
@@ -204,19 +222,28 @@ export default function GatePass() {
                                 <h2 className="text-xl font-bold">1. Select Student</h2>
                             </div>
 
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    placeholder="Search by Student Name, SR No, or Father's Name..."
-                                    value={searchStudent}
-                                    onChange={(e) => setSearchStudent(e.target.value)}
-                                    className="w-full pl-4 pr-4 py-3 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                                />
-                                {loadingStudents && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />}
+                            <div className="flex gap-3">
+                                <div className="relative flex-1">
+                                    <input
+                                        type="text"
+                                        placeholder="Search by Student Name, SR No, or Father's Name..."
+                                        value={searchStudent}
+                                        onChange={(e) => setSearchStudent(e.target.value)}
+                                        className="w-full pl-4 pr-10 py-3 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                                    />
+                                    {loadingStudents && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />}
+                                </div>
+                                <select 
+                                    value={searchClass} 
+                                    onChange={(e) => setSearchClass(e.target.value)} 
+                                    className="px-4 py-3 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all min-w-[120px]"
+                                >
+                                    {CLASSES.map(c => <option key={c} value={c}>{c === 'All' ? 'All Classes' : c}</option>)}
+                                </select>
                             </div>
 
                             {/* Search Dropdown Results */}
-                            {searchStudent && (
+                            {!selectedStudent && (searchStudent || searchClass !== 'All') && (
                                 <div className="mt-2 border border-border rounded-xl bg-card overflow-hidden shadow-lg absolute z-50 w-full lg:w-auto left-6 right-6 lg:right-auto lg:w-[calc(50%-2rem)]">
                                     {filteredStudents.length > 0 ? (
                                         filteredStudents.map(student => (
@@ -452,6 +479,7 @@ export default function GatePass() {
                                             <th className="px-5 py-3.5 font-semibold text-muted-foreground whitespace-nowrap">Reason</th>
                                             <th className="px-5 py-3.5 font-semibold text-muted-foreground whitespace-nowrap">Date</th>
                                             <th className="px-5 py-3.5 font-semibold text-muted-foreground whitespace-nowrap">Time Out</th>
+                                            <th className="px-5 py-3.5 font-semibold text-muted-foreground whitespace-nowrap text-right">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -484,6 +512,15 @@ export default function GatePass() {
                                                     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-50 text-orange-600 border border-orange-100">
                                                         {record.pass_time}
                                                     </span>
+                                                </td>
+                                                <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                                                    <button
+                                                        onClick={() => handleDeleteRecord(record.id)}
+                                                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                                                        title="Delete Record"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
                                                 </td>
                                             </tr>
                                         ))}
