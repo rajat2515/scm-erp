@@ -68,6 +68,7 @@ interface Student {
     father_name?: string; mother_name?: string;
     address?: string; phone?: string; roll_no?: string;
     rte?: string; status?: string;
+    tuition_discount?: number;
 }
 interface PayRec { id?: number; created_at?: string; sr_no: number; month: string; due_amount: number; paid_amount: number; paid_on?: string; mode: string; discount?: number; }
 interface FeeStructure { class: string; monthly_fee: number; }
@@ -94,9 +95,14 @@ const StudentFeeTable: React.FC<{
     payments: PayRec[];
     selectedKeys: Set<string>;
     onToggleKey: (key: string) => void;
-}> = ({ student, feeStr, payments, selectedKeys, onToggleKey }) => {
+    otherFeeAmount: string;
+    otherFeeReason: string;
+    onOtherFeeAmountChange: (v: string) => void;
+    onOtherFeeReasonChange: (v: string) => void;
+}> = ({ student, feeStr, payments, selectedKeys, onToggleKey, otherFeeAmount, otherFeeReason, onOtherFeeAmountChange, onOtherFeeReasonChange }) => {
     const isRTE = ['yes', 'rte'].includes((student.rte || '').toLowerCase());
-    const tuition = monthlyFee(student, feeStr);
+    const baseTuition = monthlyFee(student, feeStr);
+    const tuition = Math.max(0, baseTuition - (student.tuition_discount || 0));
     const payMap = new Map(payments.map(p => [p.month, p]));
 
     const rows = BASE_FEE_ROWS.map(r => {
@@ -185,6 +191,37 @@ const StudentFeeTable: React.FC<{
                     </div>
                 </div>
             )}
+
+            {/* ── Other Fee ─────────────────────────────── */}
+            <div className="pt-4 border-t border-border/60">
+                <label className="text-xs font-medium text-muted-foreground mb-3 block">Other Fee (Optional)</label>
+                <div className="flex gap-2 items-center">
+                    <div className="relative w-36 flex-shrink-0">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">₹</span>
+                        <input
+                            type="number"
+                            value={otherFeeAmount}
+                            onChange={e => onOtherFeeAmountChange(e.target.value)}
+                            className="w-full pl-7 pr-3 py-2 rounded-lg border border-border bg-background text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-primary/40"
+                            min={0}
+                            placeholder="Amount"
+                        />
+                    </div>
+                    <input
+                        type="text"
+                        value={otherFeeReason}
+                        onChange={e => onOtherFeeReasonChange(e.target.value)}
+                        className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+                        placeholder="Reason (e.g. Late fine, Book fee…)"
+                        maxLength={80}
+                    />
+                </div>
+                {Number(otherFeeAmount) > 0 && (
+                    <p className="text-[10px] text-primary mt-1.5 font-medium">
+                        ₹{Number(otherFeeAmount).toLocaleString('en-IN')} will be added to this transaction{otherFeeReason ? ` — ${otherFeeReason}` : ''}.
+                    </p>
+                )}
+            </div>
 
             <div className="pt-4 border-t border-border flex flex-wrap items-center justify-between gap-4 text-sm mt-2">
                 <div><span className="text-muted-foreground mr-2 text-xs">Total Due:</span><span className="font-semibold">{fmtINR(totalDue)}</span></div>
@@ -333,9 +370,6 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const [selected, setSelected] = useState<Student | null>(null);
     const [payments, setPayments] = useState<PayRec[]>([]);
     
-    const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
-
-    // Collection Sidebar State
     const [payMode, setPayMode] = useState<'cash' | 'online' | 'cheque' | 'split'>('cash');
     const [splitCash, setSplitCash] = useState('');
     const [splitOnline, setSplitOnline] = useState('');
@@ -343,14 +377,21 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const [payAmount, setPayAmount] = useState('');
     const [discountInput, setDiscountInput] = useState('');
     const [saving, setSaving] = useState(false);
-    const [saveMsg, setSaveMsg] = useState<{type: 'ok'|'error', text: string} | null>(null);
+    const [saveMsg, setSaveMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null);
+
+    const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
 
     const [searching, setSearching] = useState(false);
     const [loadingPay, setLoadingPay] = useState(false);
     const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+    const [studentDiscount, setStudentDiscount] = useState('0');
+    const [savingDiscount, setSavingDiscount] = useState(false);
+    const [otherFeeAmount, setOtherFeeAmount] = useState('');
+    const [otherFeeReason, setOtherFeeReason] = useState('');
 
     // Compute exactly what is due based on selected keys
-    const tuition = selected ? monthlyFee(selected, feeStr) : 0;
+    const baseTuition = selected ? monthlyFee(selected, feeStr) : 0;
+    const tuition = Math.max(0, baseTuition - (Number(studentDiscount) || 0));
     const isRTE = selected ? ['yes', 'rte'].includes((selected.rte || '').toLowerCase()) : false;
     const payMap = new Map(payments.map(p => [p.month, p]));
     
@@ -362,7 +403,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         return { def: r, due, paid, disc };
     }).filter(x => (x.due - x.disc) > x.paid);
 
-    const totalDue = itemsToCollect.reduce((s, i) => s + (i.due - i.paid - i.disc), 0);
+    const otherFee = Math.max(0, Number(otherFeeAmount) || 0);
+    const totalDue = itemsToCollect.reduce((s, i) => s + (i.due - i.paid - i.disc), 0) + otherFee;
     const transactionDiscount = Number(discountInput) || 0;
     const grandTotal = Math.max(0, totalDue - transactionDiscount);
 
@@ -389,7 +431,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         if (!q.trim() && !cls) { setResults([]); return; }
         setSearching(true);
         const isNum = /^\d+$/.test(q.trim());
-        let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status').eq('status', 'active');
+        let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status,tuition_discount').eq('status', 'active');
         if (cls) {
             qb = qb.eq('class', cls);
         }
@@ -423,16 +465,23 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         setResults([]);
         setSelectedKeys(new Set()); 
         setSaveMsg(null);
+        setStudentDiscount(String(s.tuition_discount || 0));
+        setDiscountInput('');
+        setOtherFeeAmount('');
+        setOtherFeeReason('');
         loadPayments(s.sr_no);
     };
 
     const handlePrintReceipt = (receiptNo?: string) => {
         if (!selected) return;
         
-        const items = itemsToCollect.map(i => ({
-            label: i.def.label,
-            amount: i.due - i.paid - i.disc
-        }));
+        const items = [
+            ...itemsToCollect.map(i => ({
+                label: i.def.label,
+                amount: i.due - i.paid - i.disc
+            })),
+            ...(otherFee > 0 ? [{ label: otherFeeReason || 'Other Fee', amount: otherFee }] : [])
+        ];
 
         const actualReceived = Math.min(Number(payAmount) || 0, grandTotal);
         const effectiveTotal = actualReceived > 0 ? actualReceived : grandTotal;
@@ -478,8 +527,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             setSaveMsg({ type: 'error', text: 'Enter a valid amount or discount' }); 
             return; 
         }
-        if (itemsToCollect.length === 0) {
-            setSaveMsg({ type: 'error', text: 'Select months to collect' });
+        if (itemsToCollect.length === 0 && otherFee <= 0) {
+            setSaveMsg({ type: 'error', text: 'Select months to collect or enter an other fee amount' });
             return;
         }
 
@@ -531,6 +580,20 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             });
         }
 
+        // Save other fee as a separate record if present
+        if (otherFee > 0) {
+            const otherKey = `Other: ${otherFeeReason || 'Other Fee'} - ${new Date().toISOString().split('T')[0]}`;
+            updates.push({
+                sr_no: selected.sr_no,
+                month: otherKey,
+                due_amount: otherFee,
+                paid_amount: Math.min(otherFee, remaining > 0 ? remaining : otherFee),
+                discount: 0,
+                paid_on: new Date().toISOString().split('T')[0],
+                mode: finalPayModeStr,
+            });
+        }
+
         if (updates.length > 0) {
             const { data, error } = await supabase.from('fee_payments').upsert(updates, { onConflict: 'sr_no,month' }).select();
             if (error) { 
@@ -555,6 +618,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             setSelectedKeys(new Set());
             setDiscountInput('');
             setPayAmount('');
+            setOtherFeeAmount('');
+            setOtherFeeReason('');
         } else {
             setSaving(false);
         }
@@ -634,20 +699,80 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                         </div>
 
                         {selected && (
-                            <div className="mt-4 p-4 bg-muted/40 rounded-xl grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm border border-border/50">
-                                {[
-                                    ['Name', selected.name],
-                                    ['SR No.', String(selected.sr_no)],
-                                    ['Class', selected.class],
-                                    ["Father's Name", selected.father_name || '—'],
-                                    ['Phone', selected.phone || '—'],
-                                    ['Address', selected.address || '—'],
-                                ].map(([label, val]) => (
-                                    <div key={label}>
-                                        <p className="text-xs text-muted-foreground">{label}</p>
-                                        <p className="font-medium truncate">{val}</p>
+                            <div className="mt-4 space-y-4">
+                                <div className="p-4 bg-muted/40 rounded-xl grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm border border-border/50">
+                                    {[
+                                        ['Name', selected.name],
+                                        ['SR No.', String(selected.sr_no)],
+                                        ['Class', selected.class],
+                                        ["Father's Name", selected.father_name || '—'],
+                                        ['Phone', selected.phone || '—'],
+                                        ['Address', selected.address || '—'],
+                                    ].map(([label, val]) => (
+                                        <div key={label}>
+                                            <p className="text-xs text-muted-foreground">{label}</p>
+                                            <p className="font-medium truncate">{val}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-100">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <p className="text-sm font-semibold text-emerald-900">Student Monthly Dsc.</p>
+                                            <p className="text-xs text-emerald-600/80">Save a permanent discount for this student.</p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="relative w-32">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">₹</span>
+                                                <input
+                                                    type="number"
+                                                    value={studentDiscount}
+                                                    onChange={e => setStudentDiscount(e.target.value)}
+                                                    className="w-full pl-7 pr-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm font-semibold text-emerald-800 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                                                    min={0}
+                                                />
+                                            </div>
+                                            {parseFloat(studentDiscount) !== (selected.tuition_discount || 0) && (
+                                                <button
+                                                    onClick={async () => {
+                                                        setSavingDiscount(true);
+                                                        await supabase.from('students').update({ tuition_discount: parseFloat(studentDiscount) || 0 }).eq('sr_no', selected.sr_no);
+                                                        setSelected(prev => prev ? { ...prev, tuition_discount: parseFloat(studentDiscount) || 0 } : null);
+                                                        setSavingDiscount(false);
+                                                    }}
+                                                    disabled={savingDiscount}
+                                                    className="p-2 rounded-lg bg-emerald-600 text-white transition-all hover:bg-emerald-700 disabled:opacity-50"
+                                                    title="Save discount to student record"
+                                                >
+                                                    {savingDiscount ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
-                                ))}
+                                    
+                                    {baseTuition > 0 && (
+                                        <div className="flex gap-2 mt-3 pt-3 border-t border-emerald-100/60 flex-wrap">
+                                            <span className="text-[10px] font-medium text-emerald-700/80 self-center mr-1">Quick Calc:</span>
+                                            {[25, 50, 75].map(pct => {
+                                                const amount = Math.round((baseTuition * pct) / 100);
+                                                const isSelected = studentDiscount === String(amount);
+                                                return (
+                                                    <button
+                                                        key={pct}
+                                                        onClick={() => setStudentDiscount(String(amount))}
+                                                        className={`px-3 py-1 text-[11px] font-bold rounded border transition-colors ${
+                                                            isSelected
+                                                                ? 'bg-emerald-600 text-white border-emerald-600 cursor-default'
+                                                                : 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                                        }`}
+                                                    >
+                                                        {pct}% OFF (₹{amount})
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -673,6 +798,10 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                         payments={payments}
                                         selectedKeys={selectedKeys}
                                         onToggleKey={toggleKey}
+                                        otherFeeAmount={otherFeeAmount}
+                                        otherFeeReason={otherFeeReason}
+                                        onOtherFeeAmountChange={setOtherFeeAmount}
+                                        onOtherFeeReasonChange={setOtherFeeReason}
                                     />
                                 )}
                             </>
@@ -697,24 +826,12 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                 {selectedKeys.size > 0 && <span className="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-md border border-primary/20">{selectedKeys.size} Selected</span>}
                             </h3>
 
+
+
                             <div className="space-y-3 pb-4 border-b border-border/60">
                                 <div className="flex justify-between items-center text-sm">
                                     <span className="text-muted-foreground font-medium">Total Balance</span>
                                     <span className="font-bold text-red-600 text-base">{fmtINR(totalDue)}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm">
-                                    <span className="font-medium text-muted-foreground">Transaction Discount</span>
-                                    <div className="relative w-28">
-                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">₹</span>
-                                        <input
-                                            type="number"
-                                            value={discountInput}
-                                            onChange={e => setDiscountInput(e.target.value)}
-                                            className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-border bg-background text-sm font-semibold text-right text-rose-600 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
-                                            min={0}
-                                            step={0.01}
-                                        />
-                                    </div>
                                 </div>
                                 <div className="border-t border-border pt-2 flex justify-between items-center">
                                     <span className="font-bold text-base">Grand Total</span>
@@ -736,6 +853,23 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                         />
                                     </div>
                                     <p className="text-[10px] text-muted-foreground mt-1">Amount will cascade across selected rows automatically.</p>
+                                </div>
+
+                                <div>
+                                    <div className="flex justify-between text-sm items-center py-1">
+                                        <label className="text-xs font-medium text-muted-foreground block">Transaction Discount</label>
+                                        <div className="relative w-32">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-bold">₹</span>
+                                            <input
+                                                type="number"
+                                                value={discountInput}
+                                                onChange={e => setDiscountInput(e.target.value)}
+                                                className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-border bg-background text-sm font-bold text-rose-600 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                                min={0}
+                                                placeholder="0"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div>
