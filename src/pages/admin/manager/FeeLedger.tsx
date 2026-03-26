@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
 import {
-    Search, Printer, CheckCircle2, AlertCircle, Trash2,
+    Search, CheckCircle2, AlertCircle, Trash2,
     BookOpen, Users, TrendingDown, ChevronDown, X, Loader2, Bus, Settings2,
 } from 'lucide-react';
 import TransportFeeTab from './TransportFeeTab';
@@ -104,20 +104,22 @@ const StudentFeeTable: React.FC<{
         const due = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
         const pay = payMap.get(r.key);
         const paid = pay?.paid_amount || 0;
-        const balance = Math.max(0, due - paid);
-        return { ...r, due, paid, balance };
+        const disc = pay?.discount || 0;
+        const balance = Math.max(0, due - paid - disc);
+        return { ...r, due, paid, disc, balance };
     });
 
     const totalDue = rows.reduce((s, r) => s + r.due, 0);
     const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
-    const totalBal = totalDue - totalPaid;
+    const totalDisc = rows.reduce((s, r) => s + r.disc, 0);
+    const totalBal = totalDue - totalPaid - totalDisc;
 
     const annualRows = rows.filter(r => r.type === 'annual');
     const examRows = rows.filter(r => r.type === 'exam');
     const tuitionRows = rows.filter(r => r.type === 'tuition');
 
     const renderPill = (r: typeof rows[0], forceWide = false) => {
-        const isPaid = r.paid >= r.due && r.due > 0;
+        const isPaid = (r.paid + r.disc) >= r.due && r.due > 0;
         const isRTEZero = r.due === 0 && r.paid === 0;
         const isSelected = selectedKeys.has(r.key);
         const isDisabled = isPaid || isRTEZero;
@@ -210,6 +212,7 @@ export interface FeeReceiptData {
     receiptNo?: string;
     paymentDate: string;
     paymentMode: string;
+    paymentType: 'FULL PAYMENT' | 'PARTIAL PAYMENT';
 }
 
 const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) => {
@@ -239,6 +242,23 @@ const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) =>
                 <div><strong>Receipt No:</strong> {data.receiptNo || 'N/A'}</div>
                 <div><strong>Date:</strong> {data.paymentDate}</div>
                 <div><strong>Mode:</strong> {data.paymentMode.toUpperCase()}</div>
+            </div>
+
+            {/* Payment Type Label */}
+            <div style={{ textAlign: 'center', marginBottom: 10 }}>
+                <span style={{
+                    display: 'inline-block',
+                    padding: '3px 14px',
+                    borderRadius: 4,
+                    fontSize: 11,
+                    fontWeight: 'bold',
+                    letterSpacing: 0.5,
+                    background: data.paymentType === 'FULL PAYMENT' ? '#d1fae5' : '#fef3c7',
+                    color: data.paymentType === 'FULL PAYMENT' ? '#065f46' : '#92400e',
+                    border: `1px solid ${data.paymentType === 'FULL PAYMENT' ? '#6ee7b7' : '#fcd34d'}`,
+                }}>
+                    {data.paymentType}
+                </span>
             </div>
 
             {/* Student Details */}
@@ -316,7 +336,10 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
 
     // Collection Sidebar State
-    const [payMode, setPayMode] = useState<'cash' | 'online' | 'cheque'>('cash');
+    const [payMode, setPayMode] = useState<'cash' | 'online' | 'cheque' | 'split'>('cash');
+    const [splitCash, setSplitCash] = useState('');
+    const [splitOnline, setSplitOnline] = useState('');
+    const [splitCheque, setSplitCheque] = useState('');
     const [payAmount, setPayAmount] = useState('');
     const [discountInput, setDiscountInput] = useState('');
     const [saving, setSaving] = useState(false);
@@ -411,15 +434,25 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             amount: i.due - i.paid - i.disc
         }));
 
+        const actualReceived = Math.min(Number(payAmount) || 0, grandTotal);
+        const effectiveTotal = actualReceived > 0 ? actualReceived : grandTotal;
+        const isFullPayment = (effectiveTotal + transactionDiscount) >= totalDue;
         const receipt: FeeReceiptData = {
             student: selected,
             items,
             subtotal: totalDue,
             discount: transactionDiscount,
-            grandTotal,
+            grandTotal: effectiveTotal,
             receiptNo: receiptNo || 'TUF-PROFORMA',
             paymentDate: new Date().toISOString().split('T')[0],
-            paymentMode: payMode
+            paymentMode: payMode === 'split'
+                ? 'Split (' + [
+                    (parseFloat(splitCash) || 0) > 0 ? `Cash: ₹${parseFloat(splitCash)}` : '',
+                    (parseFloat(splitOnline) || 0) > 0 ? `Online: ₹${parseFloat(splitOnline)}` : '',
+                    (parseFloat(splitCheque) || 0) > 0 ? `Cheque: ₹${parseFloat(splitCheque)}` : '',
+                ].filter(Boolean).join(', ') + ')'
+                : payMode,
+            paymentType: isFullPayment ? 'FULL PAYMENT' : 'PARTIAL PAYMENT',
         };
 
         setPrintData(receipt);
@@ -439,14 +472,33 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
     const handleSave = async () => {
         if (!selected) return;
-        let remaining = parseInt(payAmount);
-        if (isNaN(remaining) || remaining <= 0) { 
-            setSaveMsg({ type: 'error', text: 'Enter a valid amount' }); 
+        let remaining = parseInt(payAmount) || 0;
+        if (remaining < 0) remaining = 0;
+        if (remaining <= 0 && transactionDiscount <= 0) { 
+            setSaveMsg({ type: 'error', text: 'Enter a valid amount or discount' }); 
             return; 
         }
         if (itemsToCollect.length === 0) {
             setSaveMsg({ type: 'error', text: 'Select months to collect' });
             return;
+        }
+
+        let finalPayModeStr = payMode as string;
+        if (payMode === 'split') {
+            const sc = parseFloat(splitCash) || 0;
+            const so = parseFloat(splitOnline) || 0;
+            const sq = parseFloat(splitCheque) || 0;
+            const splitSum = sc + so + sq;
+            const expectedTotal = remaining > 0 ? remaining : transactionDiscount;
+            if (splitSum <= 0) {
+                setSaveMsg({ type: 'error', text: 'Enter split amounts.' });
+                return;
+            }
+            const parts = [];
+            if (sc > 0) parts.push(`Cash: ₹${sc}`);
+            if (so > 0) parts.push(`Online: ₹${so}`);
+            if (sq > 0) parts.push(`Cheque: ₹${sq}`);
+            finalPayModeStr = 'Split (' + parts.join(', ') + ')';
         }
 
         setSaving(true);
@@ -475,7 +527,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                 paid_amount: item.paid + allocate,
                 discount: item.disc + applyDisc,
                 paid_on: new Date().toISOString().split('T')[0],
-                mode: payMode,
+                mode: finalPayModeStr,
             });
         }
 
@@ -688,8 +740,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
                                 <div>
                                     <label className="text-xs font-medium text-muted-foreground mb-1 block">Payment Mode</label>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {(['cash', 'online', 'cheque'] as const).map(m => (
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {(['cash', 'online', 'cheque', 'split'] as const).map(m => (
                                             <button key={m} onClick={() => setPayMode(m)}
                                                 className={`py-2 rounded-xl text-xs font-medium border transition-all capitalize ${
                                                     payMode === m
@@ -700,6 +752,28 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                             </button>
                                         ))}
                                     </div>
+
+                                    {payMode === 'split' && (
+                                        <div className="grid grid-cols-3 gap-3 mt-3 p-3 bg-muted/20 rounded-xl border border-border/80">
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground mb-1 block">Cash</label>
+                                                <input type="number" min={0} value={splitCash} onChange={e => setSplitCash(e.target.value)} placeholder="0" className="w-full px-2 py-2 rounded-lg border border-border text-sm focus:ring-1 focus:ring-primary/40 focus:outline-none bg-background" />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground mb-1 block">Online</label>
+                                                <input type="number" min={0} value={splitOnline} onChange={e => setSplitOnline(e.target.value)} placeholder="0" className="w-full px-2 py-2 rounded-lg border border-border text-sm focus:ring-1 focus:ring-primary/40 focus:outline-none bg-background" />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground mb-1 block">Cheque</label>
+                                                <input type="number" min={0} value={splitCheque} onChange={e => setSplitCheque(e.target.value)} placeholder="0" className="w-full px-2 py-2 rounded-lg border border-border text-sm focus:ring-1 focus:ring-primary/40 focus:outline-none bg-background" />
+                                            </div>
+                                            <div className="col-span-3 text-right text-xs mt-1">
+                                                Split Total: <span className={`font-bold ${Math.abs(((parseFloat(splitCash) || 0) + (parseFloat(splitOnline) || 0) + (parseFloat(splitCheque) || 0)) - grandTotal) <= 0.01 ? 'text-emerald-600' : 'text-foreground'}`}>
+                                                    {fmtINR((parseFloat(splitCash) || 0) + (parseFloat(splitOnline) || 0) + (parseFloat(splitCheque) || 0))}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {saveMsg && (
@@ -726,16 +800,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                 </button>
                             </div>
 
-                            {/* Manual Print Action */}
-                            <div className="mt-5 pt-4 border-t border-border/80 text-center">
-                                <button
-                                    onClick={() => handlePrintReceipt()}
-                                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors text-muted-foreground"
-                                >
-                                    <Printer className="w-4 h-4" />
-                                    Preview & Print Proforma
-                                </button>
-                            </div>
+
                         </div>
 
                         {/* Recent Payments History */}
@@ -746,14 +811,23 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                     <span className="text-xs bg-muted px-2 py-1 rounded text-foreground">{payments.length} items</span>
                                 </h3>
                                 <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                                    {payments.map(p => (
+                                    {payments.map(p => {
+                                        const disc = p.discount || 0;
+                                        const isDiscounted = disc > 0 && (p.paid_amount + disc) >= p.due_amount;
+                                        const isPartial = !isDiscounted && p.paid_amount < p.due_amount;
+                                        return (
                                         <div key={p.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/40 border border-border/50 text-sm">
                                             <div>
-                                                <p className="font-medium py-0.5">{p.month}</p>
+                                                <div className="flex items-center gap-2 py-0.5">
+                                                    <p className="font-medium">{p.month}</p>
+                                                    {isDiscounted && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">Discounted</span>}
+                                                    {isPartial && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">Partial</span>}
+                                                </div>
                                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                                     <span>{new Date(p.created_at || p.paid_on || '').toLocaleDateString()}</span>
                                                     <span className="w-1 h-1 rounded-full bg-border"></span>
                                                     <span className="uppercase">{p.mode}</span>
+                                                    {disc > 0 && <><span className="w-1 h-1 rounded-full bg-border"></span><span className="text-purple-600 font-medium">Disc: {fmtINR(disc)}</span></>}
                                                 </div>
                                             </div>
                                             <div className="text-right flex items-center justify-end gap-3">
@@ -765,7 +839,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                                 )}
                                             </div>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}
@@ -803,10 +878,17 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
         loadRecords();
     }, [monthFilter, classFilter, refresh]);
 
-    const handleDelete = async (id: number) => {
+    const handleDelete = async (p: any) => {
         if (!confirm('Are you sure you want to delete this payment record?')) return;
         setLoading(true);
-        const { error } = await supabase.from('fee_payments').delete().eq('id', id);
+        let error;
+        if (p.id) {
+            ({ error } = await supabase.from('fee_payments').delete().eq('id', p.id));
+        }
+        // Fallback: delete by sr_no + month if id-based delete failed or id was missing
+        if (!p.id || error) {
+            ({ error } = await supabase.from('fee_payments').delete().eq('sr_no', p.sr_no).eq('month', p.month));
+        }
         if (error) {
             alert('Failed to delete transaction: ' + error.message);
             setLoading(false);
@@ -887,14 +969,16 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                                         <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{fmtINR(p.paid_amount)}</td>
                                         <td className="px-4 py-2.5 text-center capitalize text-xs text-muted-foreground">{p.mode}</td>
                                         <td className="px-4 py-2.5 text-center">
-                                            {p.paid_amount >= p.due_amount
-                                                ? <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Paid</span>
+                                            {(p.paid_amount + (p.discount || 0)) >= p.due_amount
+                                                ? (p.discount || 0) > 0
+                                                    ? <span className="px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700 border border-purple-200 font-semibold">Discounted</span>
+                                                    : <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Paid</span>
                                                 : p.paid_amount > 0
                                                     ? <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 border border-amber-200 font-semibold">Partial</span>
                                                     : <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 border border-red-200 font-semibold">Unpaid</span>}
                                         </td>
                                         <td className="px-4 py-2.5 text-right">
-                                            <button onClick={() => handleDelete(p.id)} className="p-1.5 text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-colors" title="Delete record"><Trash2 className="w-4 h-4" /></button>
+                                            <button onClick={() => handleDelete(p)} className="p-1.5 text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-colors" title="Delete record"><Trash2 className="w-4 h-4" /></button>
                                         </td>
                                     </tr>
                                 ))}

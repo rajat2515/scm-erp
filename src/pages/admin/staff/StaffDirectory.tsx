@@ -1,12 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
-import { Search, Plus, Pencil, Trash2, X, GraduationCap, Building2, UserCircle2, Save, Loader2, Eye, IndianRupee } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, X, GraduationCap, Building2, UserCircle2, Save, Loader2, Eye, IndianRupee, Download, Printer } from 'lucide-react';
 import type { StaffProfile } from '@/types';
+import * as XLSX from 'xlsx';
 
 const DESIGNATIONS = [
-    'Principal', 'Vice Principal', 'T.G.T.', 'P.R.T.', 'Music Teacher', 'P.T.I.', 'Librarian', 'Clerk', 'Peon', 'Other'
+    'Principal', 'Vice Principal', 'T.G.T.', 'P.R.T.', 'Music Teacher', 'P.T.I.', 'Librarian', 'Clerk', 'Peon', 'Guard', 'Driver', 'Labour', 'Other'
 ];
+
+const STAFF_CATEGORIES = [
+    { key: 'all', label: 'All' },
+    { key: 'academic', label: 'Academic Staff' },
+    { key: 'teachers', label: 'Teachers' },
+    { key: 'peon_guard', label: 'Peon & Guard' },
+    { key: 'drivers', label: 'Drivers' },
+    { key: 'labours', label: 'Labours' },
+] as const;
+
+type StaffCategory = typeof STAFF_CATEGORIES[number]['key'];
+
+function getStaffCategory(designation: string): StaffCategory {
+    const d = (designation || '').toLowerCase();
+    if (d.includes('principal') || d.includes('vice principal') || d.includes('clerk')) return 'academic';
+    if (d.includes('t.g.t') || d.includes('p.r.t') || d.includes('music') || d.includes('p.t.i') || d.includes('librarian') || d.includes('teacher')) return 'teachers';
+    if (d.includes('peon') || d.includes('guard') || d.includes('attendant') || d.includes('attendent')) return 'peon_guard';
+    if (d.includes('driver')) return 'drivers';
+    return 'labours';
+}
 
 function getInitials(name: string) {
     return name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
@@ -27,6 +48,7 @@ export default function StaffDirectory() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [selectedStaff, setSelectedStaff] = useState<StaffProfile | null>(null);
+    const [staffCategory, setStaffCategory] = useState<StaffCategory>('all');
     
     // Modal state
     const [modalOpen, setModalOpen] = useState(false);
@@ -65,11 +87,113 @@ export default function StaffDirectory() {
         setModalOpen(true);
     };
 
-    const filteredStaff = staff.filter(s => s.name.toLowerCase().includes(search.toLowerCase()) || (s.designation || '').toLowerCase().includes(search.toLowerCase()));
+    const filteredStaff = staff.filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || (s.designation || '').toLowerCase().includes(search.toLowerCase());
+        const matchesCategory = staffCategory === 'all' || getStaffCategory(s.designation) === staffCategory;
+        return matchesSearch && matchesCategory;
+    });
+
+    /* ── Excel Export ──────────────────────────────────── */
+    const handleExportExcel = () => {
+        const catLabel = STAFF_CATEGORIES.find(c => c.key === staffCategory)?.label || 'All';
+        const rows = filteredStaff.map((s, i) => ({
+            '#': i + 1,
+            'Name': s.name,
+            'Designation': s.designation,
+            'Father / Spouse': s.fathers_spouse_name || '',
+            'DOB': s.dob || '',
+            'Qualification': s.qualification || '',
+            'Teaching Subject': s.teaching_subject || '',
+            'Training': s.trained_status || '',
+            'Appointment Date': s.appointment_date || '',
+            'Basic Pay': s.basic_pay || 0,
+            'Grade Pay': s.grade_pay || 0,
+            'Gross Pay': (s.basic_pay || 0) + (s.grade_pay || 0),
+            'Status': s.status || '',
+        }));
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, catLabel);
+        XLSX.writeFile(wb, `Staff_${catLabel.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
+    /* ── Print Individual Staff ────────────────────────── */
+    const handlePrintStaff = (s: StaffProfile) => {
+        const printArea = document.getElementById('staff-print-area');
+        if (!printArea) return;
+        printArea.innerHTML = `
+            <div style="font-family: Arial, sans-serif; padding: 10mm; color: #000; max-width: 600px; margin: 0 auto;">
+                <div style="display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 16px;">
+                    <img src="/school-logo.png" alt="Logo" style="width: 60px; height: 60px; object-fit: contain;" />
+                    <div style="flex: 1; text-align: center;">
+                        <div style="font-weight: 900; font-size: 18px; letter-spacing: 1px; text-transform: uppercase;">S.C.M. CHILDREN ACADEMY</div>
+                        <div style="font-size: 11px; margin-top: 2px;">Affiliation No: 2132374 | School Code: 81858</div>
+                        <div style="font-size: 11px;">HALDAUR, BIJNOR</div>
+                    </div>
+                </div>
+                <div style="text-align: center; font-weight: bold; font-size: 15px; text-decoration: underline; margin-bottom: 16px;">STAFF PROFILE</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <tbody>
+                        ${[
+                            ['Full Name', s.name],
+                            ['Designation', s.designation],
+                            ['Father / Spouse Name', s.fathers_spouse_name || '—'],
+                            ['Date of Birth', s.dob ? formatDate(s.dob) : '—'],
+                            ['Qualification', s.qualification || '—'],
+                            ['Teaching Subject', s.teaching_subject || '—'],
+                            ['Training Status', s.trained_status || '—'],
+                            ['Appointment Date', s.appointment_date ? formatDate(s.appointment_date) : '—'],
+                            ['Basic Pay', fmtINR(s.basic_pay || 0)],
+                            ['Grade Pay', fmtINR(s.grade_pay || 0)],
+                            ['Gross Pay', fmtINR((s.basic_pay || 0) + (s.grade_pay || 0))],
+                            ['Status', (s.status || 'active').toUpperCase()],
+                        ].map(([label, val]) => `
+                            <tr>
+                                <td style="border: 1px solid #aaa; padding: 6px 10px; font-weight: bold; width: 40%; background: #f5f5f5;">${label}</td>
+                                <td style="border: 1px solid #aaa; padding: 6px 10px;">${val}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                <div style="display: flex; justify-content: space-between; margin-top: 40px; font-size: 11px;">
+                    <div style="text-align: center;"><div style="border-top: 1px solid #000; width: 120px; padding-top: 4px;">Employee</div></div>
+                    <div style="text-align: center;"><div style="border-top: 1px solid #000; width: 120px; padding-top: 4px;">Principal</div></div>
+                </div>
+                <div style="text-align: center; font-size: 9px; color: #666; margin-top: 16px;">Generated by SCM ERP System</div>
+            </div>
+        `;
+        printArea.style.display = 'block';
+        const cleanup = () => { printArea.style.display = 'none'; window.removeEventListener('afterprint', cleanup); };
+        window.addEventListener('afterprint', cleanup);
+        window.print();
+    };
 
     return (
         <AppShell title="Staff Directory" subtitle="Manage school staff profiles and access levels">
             <div className={`transition-all duration-300 ${selectedStaff ? 'mr-[22rem] lg:mr-[24rem]' : ''}`}>
+                {/* Category Tabs */}
+                <div className="flex bg-muted/50 p-1.5 rounded-2xl w-fit mb-5 overflow-x-auto">
+                    {STAFF_CATEGORIES.map(cat => {
+                        const count = cat.key === 'all' ? staff.length : staff.filter(s => getStaffCategory(s.designation) === cat.key).length;
+                        return (
+                            <button
+                                key={cat.key}
+                                onClick={() => setStaffCategory(cat.key)}
+                                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
+                                    staffCategory === cat.key
+                                        ? 'bg-card text-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                                }`}
+                            >
+                                {cat.label}
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                    staffCategory === cat.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                                }`}>{count}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 {/* Search */}
                 <div className="relative w-full sm:w-96">
@@ -83,13 +207,23 @@ export default function StaffDirectory() {
                     />
                 </div>
 
-                <button
-                    onClick={openCreateModal}
-                    className="flex items-center gap-2 gradient-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 transition-all shadow-lg shadow-primary/20 flex-shrink-0 w-full sm:w-auto justify-center"
-                >
-                    <Plus className="w-4 h-4" />
-                    Add Staff Member
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+                    <button
+                        onClick={handleExportExcel}
+                        disabled={filteredStaff.length === 0}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                        <Download className="w-4 h-4" />
+                        Excel
+                    </button>
+                    <button
+                        onClick={openCreateModal}
+                        className="flex items-center gap-2 gradient-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:opacity-90 transition-all shadow-lg shadow-primary/20"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Add Staff
+                    </button>
+                </div>
             </div>
 
             {loading ? (
@@ -255,7 +389,7 @@ export default function StaffDirectory() {
                         </div>
                         
                         {/* Footer Actions */}
-                        <div className="p-4 border-t border-border grid grid-cols-2 gap-3 bg-card">
+                        <div className="p-4 border-t border-border grid grid-cols-3 gap-3 bg-card">
                             <button 
                                 onClick={() => {
                                     setSelectedStaff(null);
@@ -263,7 +397,13 @@ export default function StaffDirectory() {
                                 }}
                                 className="flex items-center justify-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary transition-colors rounded-xl py-2.5 text-sm font-semibold"
                             >
-                                <Pencil className="w-4 h-4" /> Edit Profile
+                                <Pencil className="w-4 h-4" /> Edit
+                            </button>
+                            <button 
+                                onClick={() => handlePrintStaff(selectedStaff)}
+                                className="flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors rounded-xl py-2.5 text-sm font-semibold"
+                            >
+                                <Printer className="w-4 h-4" /> Print
                             </button>
                             <button 
                                 onClick={() => setSelectedStaff(null)}
@@ -284,6 +424,20 @@ export default function StaffDirectory() {
                     onSaved={() => { setModalOpen(false); loadStaff(); }} 
                 />
             )}
+
+            {/* Hidden Print Area */}
+            <div id="staff-print-area" style={{ display: 'none' }} />
+            <style>{`
+                @media print {
+                    body * { visibility: hidden !important; }
+                    #staff-print-area, #staff-print-area * { visibility: visible !important; }
+                    #staff-print-area {
+                        position: absolute !important; left: 0 !important; top: 0 !important;
+                        width: 100% !important; display: block !important;
+                        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+                    }
+                }
+            `}</style>
         </AppShell>
     );
 }

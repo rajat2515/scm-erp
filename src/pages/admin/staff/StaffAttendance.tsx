@@ -6,6 +6,26 @@ import type { StaffProfile, StaffAttendance } from '@/types';
 
 type AttendanceStatus = 'Present' | 'Absent' | 'Half-day' | 'Leave';
 
+const STAFF_CATEGORIES = [
+    { key: 'all', label: 'All' },
+    { key: 'academic', label: 'Academic Staff' },
+    { key: 'teachers', label: 'Teachers' },
+    { key: 'peon_guard', label: 'Peon & Guard' },
+    { key: 'drivers', label: 'Drivers' },
+    { key: 'labours', label: 'Labours' },
+] as const;
+
+type StaffCategory = typeof STAFF_CATEGORIES[number]['key'];
+
+function getStaffCategory(designation: string): StaffCategory {
+    const d = (designation || '').toLowerCase();
+    if (d.includes('principal') || d.includes('vice principal') || d.includes('clerk')) return 'academic';
+    if (d.includes('t.g.t') || d.includes('p.r.t') || d.includes('music') || d.includes('p.t.i') || d.includes('librarian') || d.includes('teacher')) return 'teachers';
+    if (d.includes('peon') || d.includes('guard') || d.includes('attendant') || d.includes('attendent')) return 'peon_guard';
+    if (d.includes('driver')) return 'drivers';
+    return 'labours';
+}
+
 export default function StaffAttendancePage() {
     const [staff, setStaff] = useState<StaffProfile[]>([]);
     const [loading, setLoading] = useState(true);
@@ -19,6 +39,7 @@ export default function StaffAttendancePage() {
     const [originalAttendance, setOriginalAttendance] = useState<Record<string, AttendanceStatus>>({});
     
     const [search, setSearch] = useState('');
+    const [staffCategory, setStaffCategory] = useState<StaffCategory>('all');
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
 
@@ -176,16 +197,44 @@ export default function StaffAttendancePage() {
 
     const markAll = (status: AttendanceStatus) => {
         const newAtt = { ...attendance };
-        staff.forEach(s => newAtt[s.id] = status);
+        const targetStaff = staffCategory === 'all' ? staff : staff.filter(s => getStaffCategory(s.designation) === staffCategory);
+        targetStaff.forEach(s => newAtt[s.id] = status);
         setAttendance(newAtt);
     };
 
-    const filteredStaff = staff.filter(s => s.name.toLowerCase().includes(search.toLowerCase()) || (s.designation||'').toLowerCase().includes(search.toLowerCase()));
+    const filteredStaff = staff.filter(s => {
+        const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || (s.designation||'').toLowerCase().includes(search.toLowerCase());
+        const matchesCategory = staffCategory === 'all' || getStaffCategory(s.designation) === staffCategory;
+        return matchesSearch && matchesCategory;
+    });
     
     const hasChanges = JSON.stringify(attendance) !== JSON.stringify(originalAttendance);
 
     return (
         <AppShell title="Staff Attendance" subtitle="Mark daily attendance for all active employees">
+            {/* Category Tabs */}
+            <div className="flex bg-muted/50 p-1.5 rounded-2xl w-fit mb-5 overflow-x-auto">
+                {STAFF_CATEGORIES.map(cat => {
+                    const count = cat.key === 'all' ? staff.length : staff.filter(s => getStaffCategory(s.designation) === cat.key).length;
+                    return (
+                        <button
+                            key={cat.key}
+                            onClick={() => setStaffCategory(cat.key)}
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
+                                staffCategory === cat.key
+                                    ? 'bg-card text-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            }`}
+                        >
+                            {cat.label}
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                staffCategory === cat.key ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+                            }`}>{count}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
             <div className="flex flex-col lg:flex-row gap-4 mb-6">
                 
                 {/* Controls */}

@@ -120,7 +120,7 @@ interface ReceiptData {
     village: string;
     rate: number;
     selectedMonths: string[];
-    days: number;
+    monthDays: Record<string, number>; // month -> days (absent or 0 = full month)
     subtotal: number;
     discount: number;
     grandTotal: number;
@@ -132,9 +132,12 @@ interface ReceiptData {
 const PrintReceipt: React.FC<{ data: ReceiptData | null }> = ({ data }) => {
     if (!data) return null;
 
-    const periodText = data.selectedMonths.length > 0
-        ? data.selectedMonths.map(m => MONTH_LABELS[m] || m).join(', ') + (data.days > 0 ? ` + ${data.days} days` : '')
-        : `${data.days} day(s)`;
+    const periodParts = data.selectedMonths.map(m => {
+        const days = data.monthDays[m];
+        const label = MONTH_LABELS[m] || m;
+        return days && days > 0 && days < 30 ? `${label} (${days}d)` : label;
+    });
+    const periodText = periodParts.length > 0 ? periodParts.join(', ') : '—';
 
     return (
         <div
@@ -328,8 +331,11 @@ const TransportLedger: React.FC = () => {
                                     </td>
                                     <td className="px-5 py-3">{r.village}</td>
                                     <td className="px-5 py-3 text-xs text-muted-foreground max-w-[200px] truncate" title={r.months_selected?.join(', ')}>
-                                        {r.months_selected?.length > 0 && r.months_selected.map((m: string) => MONTH_LABELS[m] || m).join(', ')}
-                                        {r.days > 0 && ` +${r.days}d`}
+                                        {r.months_selected?.length > 0 && r.months_selected.map((m: string) => {
+                                            const days = r.month_days && r.month_days[m];
+                                            const label = MONTH_LABELS[m] || m;
+                                            return days && days > 0 && days < 30 ? `${label}(${days}d)` : label;
+                                        }).join(', ')}
                                     </td>
                                     <td className="px-5 py-3 font-bold text-emerald-600 whitespace-nowrap">{fmtINR(r.grand_total)}</td>
                                     <td className="px-5 py-3 uppercase text-xs font-medium text-muted-foreground">{r.payment_mode}</td>
@@ -374,7 +380,7 @@ const TransportFeeTab: React.FC = () => {
 
     /* Period Selection */
     const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
-    const [extraDays, setExtraDays] = useState('0');
+    const [monthDays, setMonthDays] = useState<Record<string, number>>({}); // month -> days (0 or absent = full month)
     const [paidMonths, setPaidMonths] = useState<string[]>([]);
     const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
 
@@ -434,7 +440,7 @@ const TransportFeeTab: React.FC = () => {
         setQuery(s.name);
         setResults([]);
         setSelectedMonths([]);
-        setExtraDays('0');
+        setMonthDays({});
         setPaymentMode('cash');
         setSplitCash('');
         setSplitOnline('');
@@ -471,10 +477,27 @@ const TransportFeeTab: React.FC = () => {
     const rate = Math.max(0, (selectedVillage?.monthly_rate || 0) - (parseFloat(studentDiscount) || 0));
 
     const subtotal = (() => {
-        const monthTotal = rate * selectedMonths.length;
-        const d = Math.max(0, parseInt(extraDays) || 0);
-        const daysTotal = (rate / 26) * d;
-        return parseFloat((monthTotal + daysTotal).toFixed(2));
+        let total = 0;
+        for (const m of selectedMonths) {
+            // Calculate already paid days for this month
+            const alreadyPaidDays = paymentHistory.reduce((sum: number, h: any) => {
+                if (h.month_days && h.month_days[m]) return sum + h.month_days[m];
+                if (h.months_selected?.includes(m) && (!h.month_days || !h.month_days[m])) return sum + 30;
+                return sum;
+            }, 0);
+            const remainingDays = Math.max(0, 30 - alreadyPaidDays);
+            const hasPartialHistory = alreadyPaidDays > 0 && alreadyPaidDays < 30;
+
+            const d = monthDays[m];
+            const isByDays = hasPartialHistory || (d && d > 0 && d < 30);
+            if (isByDays) {
+                const effectiveDays = Math.min(d || remainingDays, remainingDays);
+                total += (effectiveDays / 30) * rate;
+            } else {
+                total += rate;
+            }
+        }
+        return parseFloat(total.toFixed(2));
     })();
 
     const transactionDiscount = Math.max(0, parseFloat(discountInput) || 0);
@@ -482,12 +505,19 @@ const TransportFeeTab: React.FC = () => {
 
     /* ── Toggle a month ────────────────────────────────────── */
     const toggleMonth = (m: string) => {
-        setSelectedMonths(prev =>
-            prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]
-        );
+        setSelectedMonths(prev => {
+            if (prev.includes(m)) {
+                // Deselecting: also clear days for this month
+                setMonthDays(d => { const next = { ...d }; delete next[m]; return next; });
+                return prev.filter(x => x !== m);
+            }
+            return [...prev, m];
+        });
     };
 
-    const removeMonth = (m: string) => setSelectedMonths(prev => prev.filter(x => x !== m));
+    const setDaysForMonth = (m: string, days: number) => {
+        setMonthDays(prev => ({ ...prev, [m]: days }));
+    };
 
     /* ── Save payment ──────────────────────────────────────── */
     const handleSave = async () => {
@@ -495,9 +525,8 @@ const TransportFeeTab: React.FC = () => {
             setSaveMsg({ type: 'err', text: 'Please select a student and village first.' });
             return;
         }
-        const d = parseInt(extraDays) || 0;
-        if (selectedMonths.length === 0 && d <= 0) {
-            setSaveMsg({ type: 'err', text: 'Please select at least one month or enter additional days.' });
+        if (selectedMonths.length === 0) {
+            setSaveMsg({ type: 'err', text: 'Please select at least one month.' });
             return;
         }
         if (grandTotal <= 0) {
@@ -531,7 +560,8 @@ const TransportFeeTab: React.FC = () => {
             sr_no: student.sr_no,
             village: selectedVillage.village_name,
             months_selected: selectedMonths,
-            days: d,
+            month_days: monthDays,
+            days: 0,
             rate,
             subtotal,
             last_due: 0,
@@ -561,7 +591,7 @@ const TransportFeeTab: React.FC = () => {
             village: selectedVillage.village_name,
             rate,
             selectedMonths,
-            days: d,
+            monthDays,
             subtotal,
             discount: transactionDiscount,
             grandTotal,
@@ -577,7 +607,7 @@ const TransportFeeTab: React.FC = () => {
         setPaidMonths(prev => [...prev, ...selectedMonths]);
         setPaymentHistory(prev => [data, ...prev]);
         setSelectedMonths([]);
-        setExtraDays('0');
+        setMonthDays({});
         setDiscountInput('0');
 
         setTimeout(() => {
@@ -813,40 +843,106 @@ const TransportFeeTab: React.FC = () => {
                                             {MONTHS.map(m => {
                                                 const isPaid = paidMonths.includes(m);
                                                 const isSelected = selectedMonths.includes(m);
+                                                // Check if this month was partially paid (by days) in history
+                                                const historyDays = paymentHistory.reduce((sum: number, h: any) => {
+                                                    if (h.month_days && h.month_days[m]) return sum + h.month_days[m];
+                                                    return sum;
+                                                }, 0);
+                                                const isPartiallyPaid = isPaid && historyDays > 0 && historyDays < 30;
                                                 return (
                                                     <button
                                                         key={m}
-                                                        disabled={isPaid}
+                                                        disabled={isPaid && !isPartiallyPaid}
                                                         onClick={() => toggleMonth(m)}
-                                                        className={`relative py-2 px-1 rounded-xl text-xs font-semibold border transition-all text-center ${isPaid
+                                                        className={`relative py-2 px-1 rounded-xl text-xs font-semibold border transition-all text-center flex flex-col items-center gap-0.5 ${isPaid && !isPartiallyPaid
                                                                 ? 'bg-emerald-50 border-emerald-200 text-emerald-600 opacity-60 cursor-not-allowed'
-                                                                : isSelected
-                                                                    ? 'gradient-primary text-white border-transparent shadow-md'
-                                                                    : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                                                                : isPartiallyPaid && !isSelected
+                                                                    ? 'bg-amber-50 border-amber-300 text-amber-700'
+                                                                    : isSelected
+                                                                        ? 'gradient-primary text-white border-transparent shadow-md'
+                                                                        : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
                                                             }`}
                                                     >
                                                         {MONTH_LABELS[m]}
+                                                        {isPartiallyPaid && !isSelected && (
+                                                            <span className="text-[9px] font-normal">{historyDays}d paid</span>
+                                                        )}
                                                     </button>
                                                 );
                                             })}
                                         </div>
                                     </div>
 
-                                    <div className="pt-2 border-t border-border mt-3">
-                                        <label className="text-xs font-medium text-muted-foreground mb-2 block">Additional Days (e.g., for incomplete months)</label>
-                                        <div className="flex items-center gap-4">
-                                            <input
-                                                type="number"
-                                                value={extraDays}
-                                                onChange={e => setExtraDays(e.target.value)}
-                                                min={0} max={31}
-                                                className="w-28 px-3 py-2 rounded-xl border border-border bg-background text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/30"
-                                            />
-                                            <div className="text-sm text-muted-foreground">
-                                                Formula: {(parseInt(extraDays) || 0)} days × (₹{rate} ÷ 26) = <span className="font-bold text-primary">{fmtINR(((rate / 26) * (parseInt(extraDays) || 0)))}</span>
-                                            </div>
+                                    {/* Per-month Full/By Days selection */}
+                                    {selectedMonths.length > 0 && (
+                                        <div className="pt-3 border-t border-border mt-2 space-y-2">
+                                            <label className="text-xs font-medium text-muted-foreground mb-1 block">Payment Type per Month</label>
+                                            {selectedMonths.map(m => {
+                                                // Calculate already paid days for this month from history
+                                                const alreadyPaidDays = paymentHistory.reduce((sum: number, h: any) => {
+                                                    if (h.month_days && h.month_days[m]) return sum + h.month_days[m];
+                                                    // If month is in months_selected but not in month_days, it was a full month
+                                                    if (h.months_selected?.includes(m) && (!h.month_days || !h.month_days[m])) return sum + 30;
+                                                    return sum;
+                                                }, 0);
+                                                const remainingDays = Math.max(0, 30 - alreadyPaidDays);
+                                                const hasPartialHistory = alreadyPaidDays > 0 && alreadyPaidDays < 30;
+
+                                                const d = monthDays[m] || 0;
+                                                // Force "By Days" if month has partial history (can't do "Full Month" anymore)
+                                                const isByDays = hasPartialHistory || (d > 0 && d < 30);
+                                                const effectiveDays = isByDays ? Math.min(d || remainingDays, remainingDays) : 0;
+                                                const monthAmount = isByDays ? (effectiveDays / 30) * rate : rate;
+
+                                                return (
+                                                    <div key={m} className="flex items-center gap-3 p-2.5 rounded-xl bg-muted/40 border border-border/50">
+                                                        <span className="text-sm font-semibold min-w-[40px]">{MONTH_LABELS[m]}</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            {!hasPartialHistory && (
+                                                                <button
+                                                                    onClick={() => setDaysForMonth(m, 0)}
+                                                                    className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${
+                                                                        !isByDays
+                                                                            ? 'gradient-primary text-white border-transparent shadow-sm'
+                                                                            : 'border-border text-muted-foreground hover:border-primary/40'
+                                                                    }`}
+                                                                >
+                                                                    Full Month
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                onClick={() => setDaysForMonth(m, d > 0 ? Math.min(d, remainingDays) : Math.min(1, remainingDays))}
+                                                                className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${
+                                                                    isByDays
+                                                                        ? 'gradient-primary text-white border-transparent shadow-sm'
+                                                                        : 'border-border text-muted-foreground hover:border-primary/40'
+                                                                }`}
+                                                            >
+                                                                By Days
+                                                            </button>
+                                                        </div>
+                                                        {isByDays && (
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="number"
+                                                                    value={effectiveDays}
+                                                                    onChange={e => setDaysForMonth(m, Math.min(remainingDays, Math.max(1, parseInt(e.target.value) || 1)))}
+                                                                    min={1} max={remainingDays}
+                                                                    className="w-16 px-2 py-1 rounded-lg border border-border bg-background text-sm font-bold text-center focus:outline-none focus:ring-1 focus:ring-primary/40"
+                                                                />
+                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">/ {remainingDays}d left</span>
+                                                            </div>
+                                                        )}
+                                                        {hasPartialHistory && !isByDays && (
+                                                            <span className="text-[10px] text-amber-600 font-medium">{alreadyPaidDays}d already paid</span>
+                                                        )}
+                                                        <span className="ml-auto text-sm font-bold text-primary">{fmtINR(monthAmount)}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                            <p className="text-[10px] text-muted-foreground mt-1">Formula for days: (days ÷ 30) × ₹{rate}/month</p>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -876,8 +972,14 @@ const TransportFeeTab: React.FC = () => {
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">
                                             Transport Amount
-                                            {selectedMonths.length > 0 && ` (${selectedMonths.length} month${selectedMonths.length > 1 ? 's' : ''})`}
-                                            {(parseInt(extraDays) || 0) > 0 && ` + ${(parseInt(extraDays) || 0)} days`}
+                                            {selectedMonths.length > 0 && (() => {
+                                                const fullCount = selectedMonths.filter(m => !monthDays[m] || monthDays[m] === 0 || monthDays[m] >= 30).length;
+                                                const dayMonths = selectedMonths.filter(m => monthDays[m] && monthDays[m] > 0 && monthDays[m] < 30);
+                                                const parts = [];
+                                                if (fullCount > 0) parts.push(`${fullCount} month${fullCount > 1 ? 's' : ''}`);
+                                                dayMonths.forEach(m => parts.push(`${MONTH_LABELS[m]}: ${monthDays[m]}d`));
+                                                return ` (${parts.join(', ')})`;
+                                            })()}
                                         </span>
                                         <span className="font-bold text-foreground">{fmtINR(subtotal)}</span>
                                     </div>
@@ -989,8 +1091,14 @@ const TransportFeeTab: React.FC = () => {
                                                     <p className="font-medium text-foreground">{new Date(h.payment_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                                                     <p className="text-xs text-muted-foreground mt-0.5">{h.receipt_no}</p>
                                                     {h.months_selected && h.months_selected.length > 0 && (
-                                                        <p className="text-[10px] text-primary font-medium mt-1 truncate max-w-[140px]" title={h.months_selected.map((m: string) => MONTH_LABELS[m] || m).join(', ')}>
-                                                            {h.months_selected.map((m: string) => MONTH_LABELS[m] || m).join(', ')}
+                                                        <p className="text-[10px] text-primary font-medium mt-1 truncate max-w-[160px]" title={h.months_selected.map((m: string) => {
+                                                            const days = h.month_days && h.month_days[m];
+                                                            return days && days > 0 && days < 30 ? `${MONTH_LABELS[m] || m} (${days}d)` : (MONTH_LABELS[m] || m);
+                                                        }).join(', ')}>
+                                                            {h.months_selected.map((m: string) => {
+                                                                const days = h.month_days && h.month_days[m];
+                                                                return days && days > 0 && days < 30 ? `${MONTH_LABELS[m] || m}(${days}d)` : (MONTH_LABELS[m] || m);
+                                                            }).join(', ')}
                                                         </p>
                                                     )}
                                                 </div>
