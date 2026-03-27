@@ -145,16 +145,15 @@ export default function GatePass() {
     @page { size: A4; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      width: 210mm;
-      height: 297mm;
+      width: 100%;
       font-family: Arial, sans-serif;
       font-size: 20px;
       color: #000;
       background: #fff;
     }
     .root {
-      width: 210mm;
-      height: 297mm;
+      width: 100%;
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
       padding: 10mm 12mm;
