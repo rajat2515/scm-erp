@@ -18,7 +18,7 @@ interface PrintLayoutProps {
 
 export const GatePassPrintLayout: React.FC<PrintLayoutProps> = ({ data }) => {
     return (
-        <div className="hidden print:block">
+        <div className="hidden print:block thermal-print-wrapper">
             <style>{`
                 @media print {
                     @page {
@@ -26,30 +26,32 @@ export const GatePassPrintLayout: React.FC<PrintLayoutProps> = ({ data }) => {
                         margin: 0;
                     }
 
+                    /* Hide everything on the page */
+                    body > * {
+                        display: none !important;
+                    }
+
+                    /* Show only our print wrapper's parent chain */
+                    body > *:has(.thermal-print-wrapper),
+                    .thermal-print-wrapper {
+                        display: block !important;
+                    }
+
                     html, body {
-                        width: 80mm;
+                        width: 80mm !important;
+                        max-width: 80mm !important;
                         margin: 0 !important;
                         padding: 0 !important;
-                        background: white;
-                    }
-
-                    body * {
-                        visibility: hidden;
-                    }
-
-                    .thermal-print-root,
-                    .thermal-print-root * {
-                        visibility: visible !important;
+                        background: white !important;
                     }
 
                     .thermal-print-root {
-                        position: fixed !important;
-                        top: 0 !important;
-                        left: 0 !important;
                         width: 80mm !important;
+                        max-width: 80mm !important;
                         margin: 0 !important;
                         padding: 3mm !important;
                         box-sizing: border-box !important;
+                        display: block !important;
                     }
                 }
             `}</style>

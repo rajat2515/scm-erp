@@ -3,7 +3,7 @@ import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
 import { Search, Printer, FileBadge, Loader2, ClipboardList, Calendar, X, Trash2 } from 'lucide-react';
 import type { Student } from '@/types';
-import GatePassPrintLayout, { GatePassData } from '@/components/print/GatePassPrintLayout';
+import type { GatePassData } from '@/components/print/GatePassPrintLayout';
 
 const CLASSES = ['All', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN', 'TC', 'LS'];
 
@@ -131,8 +131,207 @@ export default function GatePass() {
             pass_time: time,
         });
 
-        window.print();
-        
+        // Open a clean popup window with only the A4 gate pass content.
+        // This is the most reliable approach for Android Chrome and avoids CSS
+        // isolation issues that occur when calling window.print() on the main page.
+        const logoUrl = `${window.location.origin}/school-logo.png`;
+        const printHTML = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gate Pass</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 210mm;
+      height: 297mm;
+      font-family: Arial, sans-serif;
+      font-size: 20px;
+      color: #000;
+      background: #fff;
+    }
+    .root {
+      width: 210mm;
+      height: 297mm;
+      display: flex;
+      flex-direction: column;
+      padding: 10mm 12mm;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      display: flex;
+      align-items: center;
+      border-bottom: 4px solid black;
+      padding-bottom: 5mm;
+      margin-bottom: 5mm;
+    }
+    .header img { width: 26mm; height: 26mm; object-fit: contain; margin-right: 6mm; }
+    .header-text { text-align: center; flex: 1; }
+    .school-name { font-weight: 900; font-size: 28px; text-transform: uppercase; letter-spacing: 1px; }
+    .school-sub  { font-size: 16px; font-weight: 600; margin-top: 3px; }
+
+    /* ── TITLE ── */
+    .title {
+      text-align: center;
+      font-weight: bold;
+      font-size: 24px;
+      text-decoration: underline;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding: 4mm 0;
+      border-bottom: 2px solid #000;
+      margin-bottom: 5mm;
+    }
+
+    /* ── DATE/TIME ROW ── */
+    .row-between {
+      display: flex;
+      justify-content: space-between;
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 5mm;
+    }
+    .row-between span { font-weight: normal; }
+
+    /* ── BODY (grows to fill space) ── */
+    .body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    /* ── SECTIONS ── */
+    .section { margin-bottom: 0; }
+    .divider { border-top: 1.5px solid #999; margin-bottom: 5mm; margin-top: 5mm; }
+    .section-header {
+      font-weight: bold;
+      font-size: 19px;
+      background: #eee;
+      padding: 3mm 5mm;
+      margin-bottom: 4mm;
+      border-left: 6px solid #333;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .info-line { font-size: 22px; margin-bottom: 3mm; line-height: 1.5; }
+    .info-row  { display: flex; gap: 16mm; }
+    .bold { font-weight: 700; }
+
+    /* ── REASON ── */
+    .reason-label { font-weight: 700; font-size: 22px; margin-bottom: 3mm; }
+    .reason-line  {
+      font-size: 22px;
+      border-bottom: 2px dotted black;
+      min-height: 14mm;
+      padding-bottom: 3mm;
+      padding-top: 2mm;
+    }
+
+    /* ── SIGNATURES ── */
+    .sigs {
+      display: flex;
+      justify-content: space-between;
+      text-align: center;
+      padding-top: 5mm;
+    }
+    .sig-item { width: 28%; }
+    .sig-line {
+      border-top: 2px solid black;
+      padding-top: 4mm;
+      font-weight: bold;
+      font-size: 18px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ── FOOTER ── */
+    .footer { text-align: center; font-size: 15px; color: #666; padding-top: 4mm; border-top: 1px solid #ddd; margin-top: 4mm; }
+  </style>
+</head>
+<body>
+<div class="root">
+
+  <!-- Header -->
+  <div class="header">
+    <img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'" />
+    <div class="header-text">
+      <div class="school-name">S.C.M. CHILDREN ACADEMY</div>
+      <div class="school-sub">Aff. No: 2132374 | Code: 81858</div>
+      <div class="school-sub">HALDAUR, BIJNOR</div>
+    </div>
+  </div>
+
+  <!-- Title -->
+  <div class="title">Gate Pass — Early Departure</div>
+
+  <!-- Date & Time -->
+  <div class="row-between">
+    <div>Date: <span>${gatePassData.date}</span></div>
+    <div>Time: <span>${gatePassData.time}</span></div>
+  </div>
+
+  <!-- Body fills remaining space -->
+  <div class="body">
+
+    <!-- Student Info -->
+    <div class="section">
+      <div class="section-header">Student Information</div>
+      <div class="info-line"><span class="bold">Name:</span> ${gatePassData.studentName || '—'}</div>
+      <div class="info-row">
+        <div class="info-line"><span class="bold">Class:</span> ${gatePassData.studentClass || '—'}</div>
+        <div class="info-line"><span class="bold">SR No:</span> ${gatePassData.srNo || '—'}</div>
+      </div>
+      <div class="info-line"><span class="bold">Address:</span> ${gatePassData.placeOfLiving || '—'}</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Parent Info -->
+    <div class="section">
+      <div class="section-header">Parent / Guardian</div>
+      <div class="info-line"><span class="bold">Name:</span> ${gatePassData.parentName || '—'}</div>
+      <div class="info-line"><span class="bold">Contact:</span> ${gatePassData.parentContact || '—'}</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Reason -->
+    <div class="section">
+      <div class="reason-label">Reason for Early Leave:</div>
+      <div class="reason-line">${gatePassData.reason || ''}</div>
+    </div>
+
+    <!-- Signatures pushed to bottom -->
+    <div class="sigs">
+      <div class="sig-item"><div class="sig-line">Parent</div></div>
+      <div class="sig-item"><div class="sig-line">Security</div></div>
+      <div class="sig-item"><div class="sig-line">Admin</div></div>
+    </div>
+
+  </div><!-- end .body -->
+
+  <div class="footer">SCM ERP System &bull; Valid for date &amp; time stated above</div>
+
+</div>
+<script>
+  window.onload = function() {
+    window.print();
+    setTimeout(function() { window.close(); }, 500);
+  };
+</script>
+</body>
+</html>`;
+
+        const printWin = window.open('', '_blank', 'width=400,height=600');
+        if (printWin) {
+            printWin.document.write(printHTML);
+            printWin.document.close();
+        }
+
         // Refresh records in background so they are ready if user switches tabs
         if (activeTab === 'generate') {
             fetchRecords();
@@ -530,11 +729,6 @@ export default function GatePass() {
                         )}
                     </div>
                 </div>
-            )}
-
-            {/* Print View Component (Only visible to the browser printer) */}
-            {activeTab === 'generate' && selectedStudent && (
-                <GatePassPrintLayout data={gatePassData} />
             )}
 
         </AppShell>
