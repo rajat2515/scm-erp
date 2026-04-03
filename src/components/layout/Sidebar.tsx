@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Users, UserCheck, DollarSign, FileText,
     GraduationCap, LogOut, ChevronLeft, ChevronRight,
-    BookOpen, BarChart3, CalendarCheck, FileBadge, ClipboardList
+    BookOpen, BarChart3, CalendarCheck, FileBadge, ClipboardList, Layers
 } from 'lucide-react';
 import { supabase } from '@/config/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
@@ -25,6 +25,8 @@ const NAV_ITEMS: NavItem[] = [
     { label: 'Gate Pass', icon: FileBadge, path: '/admin/gate-pass', roles: ['admin'] },
     { label: 'Fee Management', icon: DollarSign, path: '/admin/fees', roles: ['admin'] },
     { label: 'Report Cards', icon: FileText, path: '/admin/reports', roles: ['admin'] },
+    { label: 'Forms Center', icon: ClipboardList, path: '/admin/forms', roles: ['admin'] },
+    { label: 'Session Config', icon: Layers, path: '/admin/sessions', roles: ['admin'] },
     // Teacher
     { label: 'My Dashboard', icon: LayoutDashboard, path: '/teacher', roles: ['teacher'] },
     { label: 'Enter Marks', icon: FileText, path: '/teacher/marks', roles: ['teacher'] },

@@ -2,10 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
-import { ArrowLeft, ArrowRight, Check, Loader2, UserPlus } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, UserPlus, Printer } from 'lucide-react';
 
 const CLASSES = ['Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN'];
 const STEPS = ['Personal Info', 'Family & Contact', 'Academic & Other'];
+
+/* ── Admission Fee breakdown (Yearly One-Time) ── */
+const ADMISSION_FEE_ITEMS = [
+    { label: 'Registration Fee',    amount: 100  },
+    { label: 'Admission Charges',   amount: 2000 },
+    { label: 'Generator Fee',       amount: 800  },
+    { label: 'I.D. Card & Diary',   amount: 200  },
+    { label: 'Sports',              amount: 500  },
+    { label: 'Computer Fee',        amount: 500  },
+    { label: 'Culture Activity',    amount: 500  },
+    { label: 'Library',             amount: 500  },
+];
+const ADMISSION_FEE_TOTAL = ADMISSION_FEE_ITEMS.reduce((s, i) => s + i.amount, 0); // 5100
+
+/* ── Admission Year helper ── */
+const getAdmissionYear = (dateStr: string) => {
+    const d = dateStr ? new Date(dateStr) : new Date();
+    const year = d.getFullYear();
+    const month = d.getMonth(); // 0-indexed; April = 3
+    if (month >= 3) return `${year}-${String(year + 1).slice(2)}`; // e.g. 2026-27
+    return `${year - 1}-${String(year).slice(2)}`;
+};
 
 const emptyForm = {
     sr_no: '' as unknown as number,
@@ -32,9 +54,114 @@ const emptyForm = {
     nationality: 'Indian',
     house: '',
     status: 'active' as 'active' | 'inactive' | 'transferred',
-    collect_reg_fee: true,
+    collect_admission_fee: true,
+    pay_status: 'now' as 'now' | 'later',
+    pay_mode: 'cash' as 'cash' | 'online' | 'cheque',
 };
 
+/* ─── Print Admission Receipt ───────────────────────────────── */
+interface AdmissionReceiptData {
+    student: { sr_no: number; name: string; class: string; father_name: string; admission_date: string };
+    items: { label: string; amount: number }[];
+    total: number;
+    admissionYear: string;
+    paymentMode: string;
+    receiptNo: string;
+    printDate: string;
+}
+
+const PrintAdmissionReceipt: React.FC<{ data: AdmissionReceiptData | null }> = ({ data }) => {
+    if (!data) return null;
+    return (
+        <div id="admission-receipt-print-area" style={{ display: 'none', fontFamily: 'Arial, sans-serif', padding: '8mm 14mm', color: '#000', background: '#fff' }}>
+            {/* School Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: '2px solid #000', paddingBottom: 8, marginBottom: 10 }}>
+                <img src="/school-logo.png" alt="Logo" style={{ width: 60, height: 60, objectFit: 'contain' }} />
+                <div style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ fontWeight: 900, fontSize: 18, letterSpacing: 1, textTransform: 'uppercase' }}>
+                        S.C.M. CHILDREN ACADEMY
+                    </div>
+                    <div style={{ fontSize: 11, marginTop: 2 }}>Affiliation No: 2132374 | School Code: 81858</div>
+                    <div style={{ fontSize: 11 }}>HALDAUR, BIJNOR</div>
+                </div>
+            </div>
+
+            {/* Title */}
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: 15, textDecoration: 'underline', marginBottom: 8 }}>
+                ADMISSION FEE RECEIPT — {data.admissionYear}
+            </div>
+
+            {/* Receipt Meta */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 10 }}>
+                <div><strong>Receipt No:</strong> {data.receiptNo}</div>
+                <div><strong>Date:</strong> {data.printDate}</div>
+                <div><strong>Mode:</strong> {data.paymentMode.toUpperCase()}</div>
+            </div>
+
+            {/* Student Details */}
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 10 }}>
+                <tbody>
+                    {[
+                        ['Student Name', data.student.name.toUpperCase()],
+                        ['SR No.', String(data.student.sr_no)],
+                        ['Class', data.student.class],
+                        ["Father's Name", data.student.father_name || '—'],
+                        ['Admission Date', data.student.admission_date],
+                    ].map(([label, val]) => (
+                        <tr key={label}>
+                            <td style={{ border: '1px solid #aaa', padding: '4px 8px', fontWeight: 'bold', width: '35%', background: '#f5f5f5' }}>{label}</td>
+                            <td style={{ border: '1px solid #aaa', padding: '4px 8px', color: '#104d82', fontWeight: 'bold' }}>{val}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+
+            {/* Fee Breakdown */}
+            <div style={{ fontWeight: 'bold', fontSize: 13, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Yearly Fee — One Time (Session {data.admissionYear})
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 12 }}>
+                <thead>
+                    <tr style={{ background: '#daeaf7' }}>
+                        <th style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'left' }}>Description</th>
+                        <th style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right' }}>Amount (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {data.items.map((it, idx) => (
+                        <tr key={idx} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ border: '1px solid #aaa', padding: '5px 8px' }}>{it.label}</td>
+                            <td style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right' }}>{it.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                    ))}
+                    <tr style={{ background: '#d1fae5' }}>
+                        <td style={{ border: '1px solid #aaa', padding: '5px 8px', fontWeight: 900, fontSize: 14 }}>TOTAL</td>
+                        <td style={{ border: '1px solid #aaa', padding: '5px 8px', textAlign: 'right', fontWeight: 900, fontSize: 14, color: '#065f46' }}>
+                            ₹{data.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            {/* Note */}
+            <div style={{ fontSize: 10, color: '#555', marginBottom: 16, fontStyle: 'italic' }}>
+                * This fee covers the one-time annual charges for the admission year {data.admissionYear}.
+            </div>
+
+            {/* Signatures */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, fontSize: 11 }}>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid #000', width: 120, paddingTop: 4 }}>Parent / Guardian</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ borderTop: '1px solid #000', width: 120, paddingTop: 4 }}>Cashier</div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* ─── Main Component ─────────────────────────────────────── */
 const StudentRegistration: React.FC = () => {
     const navigate = useNavigate();
     const [step, setStep] = useState(0);
@@ -42,6 +169,7 @@ const StudentRegistration: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
+    const [admissionReceiptData, setAdmissionReceiptData] = useState<AdmissionReceiptData | null>(null);
 
     useEffect(() => {
         const fetchLatestSrNo = async () => {
@@ -49,17 +177,24 @@ const StudentRegistration: React.FC = () => {
                 const { data, error } = await supabase
                     .from('students')
                     .select('sr_no')
-                    .order('sr_no', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
+                    .order('sr_no', { ascending: true });
 
                 if (error) {
-                    console.error("Error fetching latest SR No:", error);
+                    console.error("Error fetching SR Nos:", error);
                     return;
                 }
                 
-                if (data && data.sr_no) {
-                    setForm(prev => ({ ...prev, sr_no: Number(data.sr_no) + 1 }));
+                if (data && data.length > 0) {
+                    // Start checking from the smallest SR number in the table
+                    let expectedSr = data[0].sr_no;
+                    for (const row of data) {
+                        if (row.sr_no === expectedSr) {
+                            expectedSr++;
+                        } else if (row.sr_no > expectedSr) {
+                            break; // We found the first missing gap
+                        }
+                    }
+                    setForm(prev => ({ ...prev, sr_no: expectedSr }));
                 } else {
                     setForm(prev => ({ ...prev, sr_no: 1 }));
                 }
@@ -71,7 +206,7 @@ const StudentRegistration: React.FC = () => {
         fetchLatestSrNo();
     }, []);
 
-    const update = (field: string, value: string | number) =>
+    const update = (field: string, value: string | number | boolean) =>
         setForm((prev) => ({ ...prev, [field]: value }));
 
     const ic = 'w-full px-4 py-2.5 rounded-xl border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all';
@@ -90,40 +225,93 @@ const StudentRegistration: React.FC = () => {
         setError(''); return true;
     };
 
+    const triggerAdmissionPrint = (data: AdmissionReceiptData) => {
+        setAdmissionReceiptData(data);
+        setTimeout(() => {
+            const area = document.getElementById('admission-receipt-print-area');
+            if (!area) return;
+            area.style.display = 'block';
+            const cleanup = () => {
+                area.style.display = 'none';
+                window.removeEventListener('afterprint', cleanup);
+            };
+            window.addEventListener('afterprint', cleanup);
+            window.print();
+        }, 200);
+    };
+
     const handleSubmit = async () => {
         if (!validateStep()) return;
         setSaving(true); setError('');
         try {
-            const { collect_reg_fee, ...studentData } = form;
+            const { collect_admission_fee, pay_mode, ...studentData } = form;
             const payload = { ...studentData, sr_no: Number(form.sr_no) };
             
             const { error: insertError } = await supabase.from('students').insert([payload]);
             if (insertError) throw insertError;
 
-            // Handle Registration Fee
-            if (collect_reg_fee) {
+            const admissionYear = getAdmissionYear(form.admission_date);
+
+            // Handle Admission Fee (one-time, single row)
+            if (collect_admission_fee) {
+                const isPaidNow = form.pay_status === 'now';
+                const feeKey = `Admission Fee ${admissionYear}`;
                 const feePayload = {
                     sr_no: payload.sr_no,
-                    month: 'Registration Fee',
-                    due_amount: 1000,
-                    paid_amount: 1000,
-                    paid_on: new Date().toISOString().split('T')[0],
-                    mode: 'cash'
+                    month: feeKey,
+                    due_amount: ADMISSION_FEE_TOTAL,
+                    paid_amount: isPaidNow ? ADMISSION_FEE_TOTAL : 0,
+                    paid_on: isPaidNow ? new Date().toISOString().split('T')[0] : null,
+                    mode: isPaidNow ? pay_mode : 'unpaid',
                 };
                 const { error: feeErr } = await supabase.from('fee_payments').insert([feePayload]);
-                if (feeErr) console.error("Could not add registration fee:", feeErr);
+                if (feeErr) console.error("Could not add admission fee:", feeErr);
+
+                if (isPaidNow) {
+                    // Build receipt data for printing
+                    const receiptData: AdmissionReceiptData = {
+                        student: {
+                            sr_no: payload.sr_no,
+                            name: payload.name,
+                            class: payload.class,
+                            father_name: payload.father_name,
+                            admission_date: payload.admission_date,
+                        },
+                        items: ADMISSION_FEE_ITEMS,
+                        total: ADMISSION_FEE_TOTAL,
+                        admissionYear,
+                        paymentMode: pay_mode,
+                        receiptNo: `ADM-${String(payload.sr_no).padStart(4, '0')}`,
+                        printDate: new Date().toLocaleDateString('en-IN'),
+                    };
+
+                    triggerAdmissionPrint(receiptData);
+                }
             }
 
             setSuccess(true);
-            setTimeout(() => navigate('/admin/students'), 1500);
+            setTimeout(() => navigate('/admin/students'), 2500);
         } catch (err: any) {
             setError(err.message || 'Failed to register student.');
         } finally { setSaving(false); }
     };
 
+    const handlePrintLast = () => {
+        if (!admissionReceiptData) return;
+        triggerAdmissionPrint(admissionReceiptData);
+    };
+
     if (success) {
         return (
             <AppShell title="Student Registration">
+                <style>{`
+                    @page { size: A5 portrait; margin: 10mm; }
+                    @media print {
+                        body * { visibility: hidden; }
+                        #admission-receipt-print-area, #admission-receipt-print-area * { visibility: visible !important; }
+                        #admission-receipt-print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    }
+                `}</style>
                 <div className="max-w-lg mx-auto mt-20 text-center animate-fade-in">
                     <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
                         <Check className="w-8 h-8 text-emerald-600" />
@@ -132,14 +320,43 @@ const StudentRegistration: React.FC = () => {
                     <p className="text-muted-foreground mt-1 text-sm">
                         {form.name} has been added to {form.class} (SR No. {form.sr_no})
                     </p>
+                    {form.collect_admission_fee && form.pay_status === 'now' && admissionReceiptData && (
+                        <button
+                            onClick={handlePrintLast}
+                            className="mt-5 flex items-center gap-2 mx-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-blue-500/20"
+                        >
+                            <Printer className="w-4 h-4" /> Print Admission Receipt
+                        </button>
+                    )}
                 </div>
+                <PrintAdmissionReceipt data={admissionReceiptData} />
             </AppShell>
         );
     }
 
+    const admissionYear = getAdmissionYear(form.admission_date);
+
     return (
         <AppShell title="Register New Student" subtitle="Fill in the SR Register details">
+            <style>{`
+                @page { size: A5 portrait; margin: 10mm; }
+                @media print {
+                    body * { visibility: hidden; }
+                    #admission-receipt-print-area, #admission-receipt-print-area * { visibility: visible !important; }
+                    #admission-receipt-print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                }
+            `}</style>
+            <PrintAdmissionReceipt data={admissionReceiptData} />
+
             <div className="max-w-2xl mx-auto">
+                {/* Back button */}
+                <button
+                    onClick={() => navigate('/admin/students')}
+                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 px-3 py-1.5 rounded-xl hover:bg-muted transition-all"
+                >
+                    <ArrowLeft className="w-4 h-4" /> Back to Students
+                </button>
+
                 {/* Step indicator */}
                 <div className="flex items-center mb-8">
                     {STEPS.map((label, i) => (
@@ -309,22 +526,100 @@ const StudentRegistration: React.FC = () => {
                                     <option value="transferred">Transferred (TC)</option>
                                 </select>
                             </div>
-                            <div className="md:col-span-2 pt-2 border-t border-border mt-2">
-                                <label className="flex items-center gap-3 p-4 border border-emerald-500/30 bg-emerald-500/5 rounded-xl cursor-pointer hover:bg-emerald-500/10 transition-colors">
-                                    <div className="flex items-center justify-center w-6 h-6 rounded-md border border-emerald-500 bg-white">
+
+                            {/* ── Admission Fee Collection ── */}
+                            <div className="md:col-span-2 pt-2 border-t border-border mt-2 space-y-3">
+                                {/* Toggle */}
+                                <label className="flex items-start gap-3 p-4 border border-blue-500/30 bg-blue-500/5 rounded-xl cursor-pointer hover:bg-blue-500/10 transition-colors">
+                                    <div className="flex items-center justify-center w-6 h-6 rounded-md border border-blue-500 bg-white mt-0.5 flex-shrink-0">
                                         <input
                                             type="checkbox"
-                                            checked={form.collect_reg_fee}
-                                            onChange={(e) => update('collect_reg_fee', e.target.checked as any)}
-                                            className="w-4 h-4 accent-emerald-600 opacity-0 absolute"
+                                            checked={form.collect_admission_fee}
+                                            onChange={(e) => update('collect_admission_fee', e.target.checked)}
+                                            className="w-4 h-4 accent-blue-600 opacity-0 absolute"
                                         />
-                                        {form.collect_reg_fee && <Check className="w-4 h-4 text-emerald-600 pointer-events-none" />}
+                                        {form.collect_admission_fee && <Check className="w-4 h-4 text-blue-600 pointer-events-none" />}
                                     </div>
                                     <div>
-                                        <span className="font-bold text-emerald-800 dark:text-emerald-400 block tracking-wider uppercase text-xs">Collect Registration Fee</span>
-                                        <span className="text-sm text-muted-foreground font-medium">Record a ₹1,000 baseline registration fee automatically upon creation.</span>
+                                        <span className="font-bold text-blue-800 dark:text-blue-400 block tracking-wider uppercase text-xs">
+                                            Collect Admission Fee — Session {admissionYear}
+                                        </span>
+                                        <span className="text-sm text-muted-foreground font-medium">
+                                            Record ₹{ADMISSION_FEE_TOTAL.toLocaleString('en-IN')} one-time admission fee for this session and print a receipt.
+                                        </span>
                                     </div>
                                 </label>
+
+                                {/* Fee Breakdown (visible when checked) */}
+                                {form.collect_admission_fee && (
+                                    <div className="rounded-xl border border-border bg-muted/30 overflow-hidden animate-fade-in">
+                                        <div className="px-4 py-2.5 bg-muted/60 border-b border-border text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                            Yearly Fee — One Time (Session {admissionYear})
+                                        </div>
+                                        <table className="w-full text-sm">
+                                            <tbody>
+                                                {ADMISSION_FEE_ITEMS.map((item) => (
+                                                    <tr key={item.label} className="border-b border-border/50 last:border-0">
+                                                        <td className="px-4 py-2 text-foreground">{item.label}</td>
+                                                        <td className="px-4 py-2 text-right font-semibold text-foreground">
+                                                            ₹{item.amount.toLocaleString('en-IN')}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="bg-blue-50 dark:bg-blue-950/30">
+                                                    <td className="px-4 py-2.5 font-bold text-blue-800 dark:text-blue-300 text-sm uppercase tracking-wide">Total</td>
+                                                    <td className="px-4 py-2.5 text-right font-black text-blue-800 dark:text-blue-300 text-base">
+                                                        ₹{ADMISSION_FEE_TOTAL.toLocaleString('en-IN')}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+
+                                        {/* Payment mode & status */}
+                                        <div className="px-4 py-3 border-t border-border space-y-4">
+                                            <div>
+                                                <label className="text-xs font-medium text-muted-foreground mb-2 block">Payment Status</label>
+                                                <div className="flex gap-2">
+                                                    {(['now', 'later'] as const).map(status => (
+                                                        <button
+                                                            key={status}
+                                                            type="button"
+                                                            onClick={() => update('pay_status', status)}
+                                                            className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-all capitalize ${form.pay_status === status
+                                                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                                : 'bg-background border-border text-muted-foreground hover:border-blue-400 hover:text-blue-600'
+                                                                }`}
+                                                        >
+                                                            Pay {status}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            {form.pay_status === 'now' && (
+                                                <div>
+                                                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Payment Mode</label>
+                                                    <div className="flex gap-2">
+                                                        {(['cash', 'online', 'cheque'] as const).map(mode => (
+                                                            <button
+                                                                key={mode}
+                                                                type="button"
+                                                                onClick={() => update('pay_mode', mode)}
+                                                                className={`flex-1 py-2 rounded-lg text-xs font-semibold border transition-all capitalize ${form.pay_mode === mode
+                                                                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                                                    : 'bg-background border-border text-muted-foreground hover:border-blue-400 hover:text-blue-600'
+                                                                    }`}
+                                                            >
+                                                                {mode}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

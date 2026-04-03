@@ -64,16 +64,16 @@ import { CLASSES } from '../students/StudentDirectory';
 
 /* ─── Constants ───────────────────────────────────────────── */
 const MONTHS = [
-    'April 2025', 'May 2025', 'June 2025', 'July 2025',
-    'August 2025', 'September 2025', 'October 2025', 'November 2025',
-    'December 2025', 'January 2026', 'February 2026', 'March 2026',
+    'April 2026', 'May 2026', 'June 2026', 'July 2026',
+    'August 2026', 'September 2026', 'October 2026', 'November 2026',
+    'December 2026', 'January 2027', 'February 2027', 'March 2027',
 ];
 
 const MONTH_LABELS: Record<string, string> = {
-    'April 2025': 'Apr', 'May 2025': 'May', 'June 2025': 'Jun',
-    'July 2025': 'Jul', 'August 2025': 'Aug', 'September 2025': 'Sep',
-    'October 2025': 'Oct', 'November 2025': 'Nov', 'December 2025': 'Dec',
-    'January 2026': 'Jan', 'February 2026': 'Feb', 'March 2026': 'Mar',
+    'April 2026': 'Apr', 'May 2026': 'May', 'June 2026': 'Jun',
+    'July 2026': 'Jul', 'August 2026': 'Aug', 'September 2026': 'Sep',
+    'October 2026': 'Oct', 'November 2026': 'Nov', 'December 2026': 'Dec',
+    'January 2027': 'Jan', 'February 2027': 'Feb', 'March 2027': 'Mar',
 };
 
 const fmtINR = (n: number) => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 0 });

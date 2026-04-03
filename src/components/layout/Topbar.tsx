@@ -2,6 +2,7 @@ import React from 'react';
 import { Bell } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { getInitials } from '@/lib/utils';
+import { useSessionStore } from '@/store/sessionStore';
 
 interface TopbarProps {
     title?: string;
@@ -10,6 +11,7 @@ interface TopbarProps {
 
 const Topbar: React.FC<TopbarProps> = ({ title, subtitle }) => {
     const { user } = useAuth();
+    const { sessions, selectedSession, setSelectedSession } = useSessionStore();
 
     return (
         <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 flex-shrink-0">
@@ -25,6 +27,22 @@ const Topbar: React.FC<TopbarProps> = ({ title, subtitle }) => {
 
             {/* Right side */}
             <div className="flex items-center gap-3">
+                {/* Session Selector */}
+                {sessions.length > 0 && user?.role === 'admin' && (
+                    <select 
+                        value={selectedSession?.id || ''} 
+                        onChange={(e) => {
+                            const session = sessions.find(s => s.id === e.target.value);
+                            if (session) setSelectedSession(session);
+                        }}
+                        className="text-xs bg-background border border-border rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                        {sessions.map(s => (
+                            <option key={s.id} value={s.id}>{s.name} {s.is_active ? '(Active)' : ''}</option>
+                        ))}
+                    </select>
+                )}
+
                 {/* Notifications bell */}
                 <button className="relative w-9 h-9 flex items-center justify-center rounded-xl hover:bg-muted transition-colors">
                     <Bell className="w-4 h-4 text-muted-foreground" />

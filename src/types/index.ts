@@ -35,7 +35,7 @@ export interface Student {
     occupation?: string;
     nationality?: string;
     house?: string;
-    status: 'active' | 'inactive' | 'transferred';
+    status: 'active' | 'inactive' | 'transferred' | 'alumni';
     created_at?: string;
 }
 
@@ -55,6 +55,10 @@ export interface StaffProfile {
     basic_pay: number;
     grade_pay: number;
     status: 'active' | 'inactive';
+    phone?: string;
+    address?: string;
+    aadhar_no?: string;
+    emergency_contact?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -65,6 +69,14 @@ export interface StaffAttendance {
     date: string; // YYYY-MM-DD
     status: 'Present' | 'Absent' | 'Half-day' | 'Leave';
     created_at?: string;
+}
+
+export interface WorkingDay {
+    date: string; // YYYY-MM-DD
+    is_working: boolean;
+    notes?: string;
+    created_at?: string;
+    updated_at?: string;
 }
 
 // ─── Fees ─────────────────────────────────────────────────────────────────────
@@ -130,4 +142,15 @@ export interface NavItem {
     icon: React.ComponentType<{ className?: string }>;
     path: string;
     roles: UserRole[];
+}
+
+// ─── Academic Sessions ────────────────────────────────────────────────────────
+
+export interface AcademicSession {
+    id: string; // UUID
+    name: string; // e.g., '2026-2027'
+    start_date: string; // YYYY-MM-DD
+    end_date: string; // YYYY-MM-DD
+    is_active: boolean; // Is it the ongoing global session?
+    created_at?: string;
 }

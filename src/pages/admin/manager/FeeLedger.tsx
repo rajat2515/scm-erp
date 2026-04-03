@@ -3,10 +3,11 @@ import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
 import {
     Search, CheckCircle2, AlertCircle, Trash2,
-    BookOpen, Users, TrendingDown, ChevronDown, X, Loader2, Bus, Settings2,
+    BookOpen, Users, TrendingDown, ChevronDown, X, Loader2, Bus, Settings2, History,
 } from 'lucide-react';
 import TransportFeeTab from './TransportFeeTab';
 import FeeStructureTab from './FeeStructureTab';
+import PrevYearDueTab from './PrevYearDueTab';
 import { CLASSES } from '../students/StudentDirectory';
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -45,20 +46,20 @@ interface FeeRowDef {
 }
 
 const BASE_FEE_ROWS: FeeRowDef[] = [
-    { key: 'Annual Fee 2025-26', label: 'Annual Fee', type: 'annual', fixedDue: ANNUAL_FEE },
-    { key: 'April 2025', label: 'Apr', type: 'tuition', fixedDue: null },
-    { key: 'May 2025', label: 'May', type: 'tuition', fixedDue: null },
-    { key: 'June 2025', label: 'Jun', type: 'tuition', fixedDue: null },
-    { key: 'July 2025', label: 'Jul', type: 'tuition', fixedDue: null },
-    { key: 'August 2025', label: 'Aug', type: 'tuition', fixedDue: null },
-    { key: 'September 2025', label: 'Sep', type: 'tuition', fixedDue: null },
+    { key: 'Annual Fee 2026-27', label: 'Annual Fee', type: 'annual', fixedDue: ANNUAL_FEE },
+    { key: 'April 2026', label: 'Apr', type: 'tuition', fixedDue: null },
+    { key: 'May 2026', label: 'May', type: 'tuition', fixedDue: null },
+    { key: 'June 2026', label: 'Jun', type: 'tuition', fixedDue: null },
+    { key: 'July 2026', label: 'Jul', type: 'tuition', fixedDue: null },
+    { key: 'August 2026', label: 'Aug', type: 'tuition', fixedDue: null },
+    { key: 'September 2026', label: 'Sep', type: 'tuition', fixedDue: null },
     { key: 'Exam Fee Term 1', label: 'Exam Fee – Term 1', type: 'exam', fixedDue: EXAM_FEE, divider: true },
-    { key: 'October 2025', label: 'Oct', type: 'tuition', fixedDue: null },
-    { key: 'November 2025', label: 'Nov', type: 'tuition', fixedDue: null },
-    { key: 'December 2025', label: 'Dec', type: 'tuition', fixedDue: null },
-    { key: 'January 2026', label: 'Jan', type: 'tuition', fixedDue: null },
-    { key: 'February 2026', label: 'Feb', type: 'tuition', fixedDue: null },
-    { key: 'March 2026', label: 'Mar', type: 'tuition', fixedDue: null },
+    { key: 'October 2026', label: 'Oct', type: 'tuition', fixedDue: null },
+    { key: 'November 2026', label: 'Nov', type: 'tuition', fixedDue: null },
+    { key: 'December 2026', label: 'Dec', type: 'tuition', fixedDue: null },
+    { key: 'January 2027', label: 'Jan', type: 'tuition', fixedDue: null },
+    { key: 'February 2027', label: 'Feb', type: 'tuition', fixedDue: null },
+    { key: 'March 2027', label: 'Mar', type: 'tuition', fixedDue: null },
     { key: 'Exam Fee Term 2', label: 'Exam Fee – Term 2', type: 'exam', fixedDue: EXAM_FEE, divider: true },
 ];
 
@@ -1252,7 +1253,7 @@ const TuitionFeeTab: React.FC<{ feeStr: FeeStructure[]; refresh: number }> = ({ 
 };
 
 /* ─── Main Page ──────────────────────────────────────────── */
-type Tab = 'tuition' | 'defaulters' | 'transport' | 'structure';
+type Tab = 'tuition' | 'defaulters' | 'prev_year' | 'transport' | 'structure';
 
 const FeeLedger: React.FC = () => {
     const [tab, setTab] = useState<Tab>('tuition');
@@ -1266,12 +1267,13 @@ const FeeLedger: React.FC = () => {
     const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
         { id: 'tuition', label: 'Tuition Fee', icon: <span className="font-bold text-base leading-none pt-0.5">₹</span> },
         { id: 'defaulters', label: 'Defaulters', icon: <TrendingDown className="w-4 h-4" /> },
+        { id: 'prev_year', label: 'Previous Year Due', icon: <History className="w-4 h-4" /> },
         { id: 'transport', label: 'Transport Fee', icon: <Bus className="w-4 h-4" /> },
         { id: 'structure', label: 'Fee Structure', icon: <Settings2 className="w-4 h-4" /> },
     ];
 
     return (
-        <AppShell title="Fee Management" subtitle="SCM Children Academy · 2025–26">
+        <AppShell title="Fee Management" subtitle="SCM Children Academy · 2026–27">
             <div className="flex gap-1 p-1 bg-muted rounded-xl mb-6 w-fit overflow-x-auto max-w-full">
                 {TABS.map(t => (
                     <button key={t.id} onClick={() => setTab(t.id)}
@@ -1283,6 +1285,7 @@ const FeeLedger: React.FC = () => {
 
             {tab === 'tuition' && <TuitionFeeTab feeStr={feeStr} refresh={refresh} />}
             {tab === 'defaulters' && <DefaultersTab />}
+            {tab === 'prev_year' && <PrevYearDueTab />}
             {tab === 'transport' && <TransportFeeTab />}
             {tab === 'structure' && <FeeStructureTab />}
         </AppShell>
