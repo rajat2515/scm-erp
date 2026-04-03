@@ -1126,159 +1126,6 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
     );
 };
 
-/* ─── Defaulters Tab ─────────────────────────────────────── */
-const DefaultersTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
-    const [period, setPeriod] = useState('Session 1 (Apr-Jun)');
-    const [classFilter, setClassFilter] = useState('All');
-    const [defaulters, setDefaulters] = useState<any[]>([]);
-    const [classes, setClasses] = useState<string[]>([]);
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        const load = async () => {
-            setLoading(true);
-            const { data: students } = await supabase.from('students')
-                .select('sr_no,name,class,phone,rte,tuition_discount')
-                .eq('status', 'active').range(0, 9999);
-            const allStu: Student[] = students || [];
-            setClasses([...new Set(allStu.map(s => s.class || '').filter(Boolean))].sort());
-            
-            let def: any[] = [];
-            
-            if (period === 'Session 1 (Apr-Jun)') {
-                // Adjustment: Focus strictly on April, May, and June for Session 1
-                const targetMonths = ['April 2026', 'May 2026', 'June 2026'];
-                const { data: payments } = await supabase.from('fee_payments')
-                    .select('sr_no,month,due_amount,paid_amount,discount')
-                    .in('month', targetMonths);
-                    
-                const pMap = new Map<number, number>(); 
-                const dMap = new Map<number, number>(); 
-                (payments || []).forEach((p: any) => {
-                    pMap.set(p.sr_no, (pMap.get(p.sr_no) || 0) + (p.paid_amount || 0));
-                    dMap.set(p.sr_no, (dMap.get(p.sr_no) || 0) + (p.discount || 0));
-                });
-                
-                def = allStu
-                    .filter(s => classFilter === 'All' || s.class === classFilter)
-                    .map(s => {
-                        const isRTE = ['yes', 'rte'].includes((s.rte || '').toLowerCase());
-                        const baseTuition = feeStr.find(f => classToKey(f.class) === classToKey(s.class || ''))?.monthly_fee || 0;
-                        const tuition = Math.max(0, baseTuition - (s.tuition_discount || 0));
-                        
-                        // Rule: Total due is tuition for 3 months. Balance <= 0 clears them.
-                        const due = isRTE ? 0 : (tuition * 3);
-                        const paid = pMap.get(s.sr_no) || 0;
-                        const disc = dMap.get(s.sr_no) || 0;
-                        
-                        const balance = Math.max(0, due - paid - disc);
-                        return { ...s, balance, hasPaid: (paid + disc) > 0, due };
-                    })
-                    .filter(s => s.balance > 0 && s.due > 0)
-                    .sort((a, b) => (b.balance || 0) - (a.balance || 0));
-            } else {
-                const { data: payments } = await supabase.from('fee_payments')
-                    .select('sr_no,due_amount,paid_amount,discount').eq('month', period);
-                const pMap = new Map<number, { due: number; paid: number, disc: number }>();
-                (payments || []).forEach((p: any) => pMap.set(p.sr_no, { due: p.due_amount, paid: p.paid_amount, disc: p.discount || 0 }));
-                
-                def = allStu
-                    .filter(s => classFilter === 'All' || s.class === classFilter)
-                    .map(s => {
-                        const isRTE = ['yes', 'rte'].includes((s.rte || '').toLowerCase());
-                        const rowDef = BASE_FEE_ROWS.find(r => r.key === period);
-                        let actualDue = 0;
-                        if (rowDef) {
-                            if (rowDef.type === 'tuition') {
-                                const baseTuition = feeStr.find(f => classToKey(f.class) === classToKey(s.class || ''))?.monthly_fee || 0;
-                                const tuition = Math.max(0, baseTuition - (s.tuition_discount || 0));
-                                actualDue = isRTE ? 0 : tuition;
-                            } else if (rowDef.fixedDue !== null) {
-                                actualDue = rowDef.fixedDue;
-                            }
-                        }
-
-                        const p = pMap.get(s.sr_no);
-                        const finalDue = p ? p.due : actualDue;
-                        const paid = p ? (p.paid + p.disc) : 0;
-                        const balance = Math.max(0, finalDue - paid);
-                        
-                        return { ...s, balance, hasPaid: !!p, due: finalDue };
-                    })
-                    .filter(s => s.balance > 0 && s.due > 0)
-                    .sort((a, b) => (b.balance || 0) - (a.balance || 0));
-            }
-
-            setDefaulters(def);
-            setLoading(false);
-        };
-        if (feeStr.length > 0) {
-            load();
-        }
-    }, [period, classFilter, feeStr]);
-
-    return (
-        <div className="space-y-4">
-            <div className="flex gap-2 flex-wrap items-center">
-                {[
-                    { val: period, set: setPeriod, opts: [{ v: 'Session 1 (Apr-Jun)', l: 'Session 1 (Apr-Jun)' }, ...BASE_FEE_ROWS.map(r => ({ v: r.key, l: r.label }))] },
-                    { val: classFilter, set: setClassFilter, opts: [{ v: 'All', l: 'All Classes' }, ...classes.map(c => ({ v: c, l: c }))] },
-                ].map((sel, i) => (
-                    <div key={i} className="relative">
-                        <select value={sel.val} onChange={e => sel.set(e.target.value)}
-                            className="pl-3 pr-8 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none appearance-none">
-                            {sel.opts.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
-                        </select>
-                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                    </div>
-                ))}
-                <div className="ml-auto text-sm text-muted-foreground flex items-center gap-1.5">
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                    <strong className="text-foreground">{defaulters.length}</strong> defaulters
-                </div>
-            </div>
-            <div className="bg-card border border-border rounded-2xl overflow-hidden">
-                {loading ? <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-                    : defaulters.length === 0 ? (
-                        <div className="text-center py-16 space-y-2">
-                            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                            <p className="font-medium">No defaulters!</p>
-                            <p className="text-sm text-muted-foreground">All students paid for selected item</p>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b border-border bg-muted/30">
-                                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Student</th>
-                                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Class</th>
-                                        <th className="text-center px-4 py-3 font-medium text-muted-foreground">Status</th>
-                                        <th className="text-right px-4 py-3 font-medium text-muted-foreground">Balance</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border">
-                                    {defaulters.map(s => (
-                                        <tr key={s.sr_no} className="hover:bg-muted/20 transition-colors">
-                                            <td className="px-4 py-2.5"><p className="font-medium">{s.name}</p><p className="text-xs text-muted-foreground">SR {s.sr_no}</p></td>
-                                            <td className="px-4 py-2.5 text-muted-foreground">{s.class}</td>
-                                            <td className="px-4 py-2.5 text-center">
-                                                <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 border border-red-200 font-semibold">
-                                                    {s.hasPaid ? 'Partial' : 'Unpaid'}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-2.5 text-right font-semibold text-red-600">
-                                                {s.balance !== null && s.balance > 0 ? fmtINR(s.balance) : '—'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-            </div>
-        </div>
-    );
-};
 
 /* ─── Tuition Fee Tab (Merged) ─────────────────────────────── */
 const TuitionFeeTab: React.FC<{ feeStr: FeeStructure[]; refresh: number }> = ({ feeStr, refresh }) => {
@@ -1329,7 +1176,6 @@ const FeeLedger: React.FC = () => {
 
     const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
         { id: 'tuition', label: 'Tuition Fee', icon: <span className="font-bold text-base leading-none pt-0.5">₹</span> },
-        { id: 'defaulters', label: 'Defaulters', icon: <TrendingDown className="w-4 h-4" /> },
         { id: 'prev_year', label: 'Previous Year Due', icon: <History className="w-4 h-4" /> },
         { id: 'transport', label: 'Transport Fee', icon: <Bus className="w-4 h-4" /> },
         { id: 'structure', label: 'Fee Structure', icon: <Settings2 className="w-4 h-4" /> },
@@ -1347,7 +1193,6 @@ const FeeLedger: React.FC = () => {
             </div>
 
             {tab === 'tuition' && <TuitionFeeTab feeStr={feeStr} refresh={refresh} />}
-            {tab === 'defaulters' && <DefaultersTab feeStr={feeStr} />}
             {tab === 'prev_year' && <PrevYearDueTab />}
             {tab === 'transport' && <TransportFeeTab />}
             {tab === 'structure' && <FeeStructureTab />}
