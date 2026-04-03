@@ -8,6 +8,7 @@ import {
 import TransportFeeTab from './TransportFeeTab';
 import FeeStructureTab from './FeeStructureTab';
 import PrevYearDueTab from './PrevYearDueTab';
+import FeeAnalysisTab from './FeeAnalysisTab';
 import { CLASSES } from '../students/StudentDirectory';
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -1163,7 +1164,7 @@ const TuitionFeeTab: React.FC<{ feeStr: FeeStructure[]; refresh: number }> = ({ 
 };
 
 /* ─── Main Page ──────────────────────────────────────────── */
-type Tab = 'tuition' | 'defaulters' | 'prev_year' | 'transport' | 'structure';
+type Tab = 'tuition' | 'defaulters' | 'prev_year' | 'transport' | 'structure' | 'analysis';
 
 const FeeLedger: React.FC = () => {
     const [tab, setTab] = useState<Tab>('tuition');
@@ -1179,6 +1180,7 @@ const FeeLedger: React.FC = () => {
         { id: 'prev_year', label: 'Previous Year Due', icon: <History className="w-4 h-4" /> },
         { id: 'transport', label: 'Transport Fee', icon: <Bus className="w-4 h-4" /> },
         { id: 'structure', label: 'Fee Structure', icon: <Settings2 className="w-4 h-4" /> },
+        { id: 'analysis', label: 'Fee Analysis', icon: <TrendingDown className="w-4 h-4" /> },
     ];
 
     return (
@@ -1196,6 +1198,7 @@ const FeeLedger: React.FC = () => {
             {tab === 'prev_year' && <PrevYearDueTab />}
             {tab === 'transport' && <TransportFeeTab />}
             {tab === 'structure' && <FeeStructureTab />}
+            {tab === 'analysis' && <FeeAnalysisTab feeStr={feeStr} />}
         </AppShell>
     );
 };
