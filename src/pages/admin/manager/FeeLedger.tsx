@@ -1127,8 +1127,8 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
 };
 
 /* ─── Defaulters Tab ─────────────────────────────────────── */
-const DefaultersTab: React.FC = () => {
-    const [month, setMonth] = useState(BASE_FEE_ROWS[1].key);
+const DefaultersTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
+    const [period, setPeriod] = useState('Session 1 (Apr-Jun)');
     const [classFilter, setClassFilter] = useState('All');
     const [defaulters, setDefaulters] = useState<any[]>([]);
     const [classes, setClasses] = useState<string[]>([]);
@@ -1137,28 +1137,91 @@ const DefaultersTab: React.FC = () => {
     useEffect(() => {
         const load = async () => {
             setLoading(true);
-            const { data: students } = await supabase.from('students').select('sr_no,name,class,phone').eq('status', 'active').range(0, 9999);
+            const { data: students } = await supabase.from('students')
+                .select('sr_no,name,class,phone,rte,tuition_discount')
+                .eq('status', 'active').range(0, 9999);
             const allStu: Student[] = students || [];
             setClasses([...new Set(allStu.map(s => s.class || '').filter(Boolean))].sort());
-            const { data: payments } = await supabase.from('fee_payments').select('sr_no,due_amount,paid_amount').eq('month', month);
-            const pMap = new Map<number, { due: number; paid: number }>();
-            (payments || []).forEach((p: any) => pMap.set(p.sr_no, { due: p.due_amount, paid: p.paid_amount }));
-            const def = allStu
-                .filter(s => classFilter === 'All' || s.class === classFilter)
-                .map(s => { const p = pMap.get(s.sr_no); return { ...s, balance: p ? Math.max(0, p.due - p.paid) : null, hasPaid: !!p }; })
-                .filter(s => !s.hasPaid || s.balance! > 0)
-                .sort((a, b) => (b.balance || 0) - (a.balance || 0));
+            
+            let def: any[] = [];
+            
+            if (period === 'Session 1 (Apr-Jun)') {
+                // Adjustment: Focus strictly on April, May, and June for Session 1
+                const targetMonths = ['April 2026', 'May 2026', 'June 2026'];
+                const { data: payments } = await supabase.from('fee_payments')
+                    .select('sr_no,month,due_amount,paid_amount,discount')
+                    .in('month', targetMonths);
+                    
+                const pMap = new Map<number, number>(); 
+                const dMap = new Map<number, number>(); 
+                (payments || []).forEach((p: any) => {
+                    pMap.set(p.sr_no, (pMap.get(p.sr_no) || 0) + (p.paid_amount || 0));
+                    dMap.set(p.sr_no, (dMap.get(p.sr_no) || 0) + (p.discount || 0));
+                });
+                
+                def = allStu
+                    .filter(s => classFilter === 'All' || s.class === classFilter)
+                    .map(s => {
+                        const isRTE = ['yes', 'rte'].includes((s.rte || '').toLowerCase());
+                        const baseTuition = feeStr.find(f => classToKey(f.class) === classToKey(s.class || ''))?.monthly_fee || 0;
+                        const tuition = Math.max(0, baseTuition - (s.tuition_discount || 0));
+                        
+                        // Rule: Total due is tuition for 3 months. Balance <= 0 clears them.
+                        const due = isRTE ? 0 : (tuition * 3);
+                        const paid = pMap.get(s.sr_no) || 0;
+                        const disc = dMap.get(s.sr_no) || 0;
+                        
+                        const balance = Math.max(0, due - paid - disc);
+                        return { ...s, balance, hasPaid: (paid + disc) > 0, due };
+                    })
+                    .filter(s => s.balance > 0 && s.due > 0)
+                    .sort((a, b) => (b.balance || 0) - (a.balance || 0));
+            } else {
+                const { data: payments } = await supabase.from('fee_payments')
+                    .select('sr_no,due_amount,paid_amount,discount').eq('month', period);
+                const pMap = new Map<number, { due: number; paid: number, disc: number }>();
+                (payments || []).forEach((p: any) => pMap.set(p.sr_no, { due: p.due_amount, paid: p.paid_amount, disc: p.discount || 0 }));
+                
+                def = allStu
+                    .filter(s => classFilter === 'All' || s.class === classFilter)
+                    .map(s => {
+                        const isRTE = ['yes', 'rte'].includes((s.rte || '').toLowerCase());
+                        const rowDef = BASE_FEE_ROWS.find(r => r.key === period);
+                        let actualDue = 0;
+                        if (rowDef) {
+                            if (rowDef.type === 'tuition') {
+                                const baseTuition = feeStr.find(f => classToKey(f.class) === classToKey(s.class || ''))?.monthly_fee || 0;
+                                const tuition = Math.max(0, baseTuition - (s.tuition_discount || 0));
+                                actualDue = isRTE ? 0 : tuition;
+                            } else if (rowDef.fixedDue !== null) {
+                                actualDue = rowDef.fixedDue;
+                            }
+                        }
+
+                        const p = pMap.get(s.sr_no);
+                        const finalDue = p ? p.due : actualDue;
+                        const paid = p ? (p.paid + p.disc) : 0;
+                        const balance = Math.max(0, finalDue - paid);
+                        
+                        return { ...s, balance, hasPaid: !!p, due: finalDue };
+                    })
+                    .filter(s => s.balance > 0 && s.due > 0)
+                    .sort((a, b) => (b.balance || 0) - (a.balance || 0));
+            }
+
             setDefaulters(def);
             setLoading(false);
         };
-        load();
-    }, [month, classFilter]);
+        if (feeStr.length > 0) {
+            load();
+        }
+    }, [period, classFilter, feeStr]);
 
     return (
         <div className="space-y-4">
             <div className="flex gap-2 flex-wrap items-center">
                 {[
-                    { val: month, set: setMonth, opts: BASE_FEE_ROWS.map(r => ({ v: r.key, l: r.label })) },
+                    { val: period, set: setPeriod, opts: [{ v: 'Session 1 (Apr-Jun)', l: 'Session 1 (Apr-Jun)' }, ...BASE_FEE_ROWS.map(r => ({ v: r.key, l: r.label }))] },
                     { val: classFilter, set: setClassFilter, opts: [{ v: 'All', l: 'All Classes' }, ...classes.map(c => ({ v: c, l: c }))] },
                 ].map((sel, i) => (
                     <div key={i} className="relative">
@@ -1284,7 +1347,7 @@ const FeeLedger: React.FC = () => {
             </div>
 
             {tab === 'tuition' && <TuitionFeeTab feeStr={feeStr} refresh={refresh} />}
-            {tab === 'defaulters' && <DefaultersTab />}
+            {tab === 'defaulters' && <DefaultersTab feeStr={feeStr} />}
             {tab === 'prev_year' && <PrevYearDueTab />}
             {tab === 'transport' && <TransportFeeTab />}
             {tab === 'structure' && <FeeStructureTab />}
