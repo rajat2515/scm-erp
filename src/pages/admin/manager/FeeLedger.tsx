@@ -79,13 +79,18 @@ interface FeeStructure { class: string; monthly_fee: number; }
 const fmtINR = (n: number) => '₹' + n.toLocaleString('en-IN');
 
 function classToKey(cls: string) {
-    return cls.trim().toUpperCase();
+    return cls.trim().replace(/s+/g, ' ').toUpperCase();
 }
 
 function monthlyFee(student: Student | null, feeStr: FeeStructure[]): number {
     if (!student) return 0;
-    const key = classToKey(student.class);
-    return feeStr.find(f => classToKey(f.class) === key)?.monthly_fee || 0;
+    const exactKey = classToKey(student.class);
+    let fMatch = feeStr.find(f => classToKey(f.class) === exactKey);
+    if (!fMatch) {
+        const baseKey = exactKey.replace(/\s+[A-Z]$/i, '').trim();
+        fMatch = feeStr.find(f => classToKey(f.class) === baseKey);
+    }
+    return fMatch?.monthly_fee || 0;
 }
 
 /* ─── Batch Collect Modal ──────────────────────────────────── */
@@ -435,7 +440,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         const isNum = /^\d+$/.test(q.trim());
         let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status,tuition_discount').eq('status', 'active');
         if (cls) {
-            qb = qb.eq('class', cls);
+            // Use ilike and replace spaces with % to handle arbitrary spacing in the db
+            qb = qb.ilike('class', cls.replace(/\s+/g, '%'));
         }
         if (q.trim()) {
             if (isNum) qb = qb.eq('sr_no', parseInt(q));

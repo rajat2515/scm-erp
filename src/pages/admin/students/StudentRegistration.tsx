@@ -4,7 +4,7 @@ import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
 import { ArrowLeft, ArrowRight, Check, Loader2, UserPlus, Printer } from 'lucide-react';
 
-const CLASSES = ['Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN'];
+const CLASSES = ['Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE A', 'FIVE B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT A', 'EIGHT B', 'NINE', 'TEN'];
 const STEPS = ['Personal Info', 'Family & Contact', 'Academic & Other'];
 
 /* ── Admission Fee breakdown (Yearly One-Time) ── */

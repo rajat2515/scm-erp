@@ -184,8 +184,13 @@ function isRTEStudent(rte?: string): boolean {
 
 function getEffectiveTuition(student: StudentRec, feeStr: FeeStructure[]): number {
     if (isRTEStudent(student.rte)) return 0;
-    const key = student.class.trim().toUpperCase();
-    const base = feeStr.find(f => f.class.trim().toUpperCase() === key)?.monthly_fee || 0;
+    const exactKey = student.class.trim().replace(/\s+/g, ' ').toUpperCase();
+    let fMatch = feeStr.find(f => f.class.trim().replace(/\s+/g, ' ').toUpperCase() === exactKey);
+    if (!fMatch) {
+        const baseKey = exactKey.replace(/\s+[A-Z]$/i, '').trim();
+        fMatch = feeStr.find(f => f.class.trim().replace(/\s+/g, ' ').toUpperCase() === baseKey);
+    }
+    const base = fMatch?.monthly_fee || 0;
     return Math.max(0, base - (student.tuition_discount || 0));
 }
 
@@ -403,7 +408,7 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             .from('students')
             .select('sr_no,name,class,rte,tuition_discount,status')
             .eq('status', 'active');
-        if (classFilter) sq = sq.eq('class', classFilter);
+        if (classFilter) sq = sq.ilike('class', classFilter.replace(/\s+/g, '%'));
 
         const { data: stuData } = await sq.order('sr_no');
         const stuList: StudentRec[] = (stuData || []);
@@ -419,6 +424,8 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
         // 2. Payments — fetch all months for this session
         const monthKeys = sessionMonths.map(m => m.key);
+        monthKeys.push(`Annual Fee ${session}`, 'Exam Fee Term 1', 'Exam Fee Term 2'); // add extra fees
+
         const { data: payData } = await supabase
             .from('fee_payments')
             .select('sr_no,month,due_amount,paid_amount,discount')
@@ -467,6 +474,24 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                     const disc = rec ? (rec.discount || 0) : 0;
                     paidTotal += Math.min(paid + disc, expected);
                 });
+
+                if (monthFilter === 'All') {
+                    // Annual Fee
+                    const annKey = `Annual Fee ${session}`;
+                    expectedTotal += ANNUAL_FEE;
+                    const rA = payMap.get(`${s.sr_no}::${annKey}`);
+                    paidTotal += Math.min((rA?.paid_amount || 0) + (rA?.discount || 0), ANNUAL_FEE);
+
+                    // Exam 1
+                    expectedTotal += EXAM_FEE;
+                    const rE1 = payMap.get(`${s.sr_no}::Exam Fee Term 1`);
+                    paidTotal += Math.min((rE1?.paid_amount || 0) + (rE1?.discount || 0), EXAM_FEE);
+
+                    // Exam 2
+                    expectedTotal += EXAM_FEE;
+                    const rE2 = payMap.get(`${s.sr_no}::Exam Fee Term 2`);
+                    paidTotal += Math.min((rE2?.paid_amount || 0) + (rE2?.discount || 0), EXAM_FEE);
+                }
 
                 const balance = Math.max(0, expectedTotal - paidTotal);
                 let status: 'Submitted' | 'Partial' | 'Pending';

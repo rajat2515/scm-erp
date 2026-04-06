@@ -6,7 +6,7 @@ import { Search, Filter, Users, UserPlus, Download, Printer, X, Save, Pencil, Gr
 import type { Student } from '@/types';
 import * as XLSX from 'xlsx';
 
-export const CLASSES = ['All', 'NUR A', 'NUR B', 'LKG A', 'LKG B', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN', 'TC', 'LS'];
+export const CLASSES = ['All', 'NUR A', 'NUR B', 'LKG A', 'LKG B', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE A', 'FIVE B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT A', 'EIGHT B', 'NINE', 'TEN', 'TC', 'LS'];
 
 function getInitials(name: string) {
     return name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase();
@@ -311,7 +311,7 @@ const StudentDirectory: React.FC = () => {
             || s.name.toLowerCase().includes(q)
             || (s.father_name || '').toLowerCase().includes(q)
             || (s.phone || '').includes(q);
-        const matchClass = classFilter === 'All' || (s.class || '').toLowerCase() === classFilter.toLowerCase();
+        const matchClass = classFilter === 'All' || (s.class || '').replace(/\s+/g, ' ').trim().toLowerCase() === classFilter.toLowerCase();
         const matchRte = rteFilter === 'All'
             || (rteFilter === 'YES' && ['yes', 'YES', 'rte', 'RTE'].includes(s.rte || ''))
             || (rteFilter === 'NO' && !['yes', 'YES', 'rte', 'RTE'].includes(s.rte || ''));

@@ -5,7 +5,7 @@ import { Search, Printer, FileBadge, Loader2, ClipboardList, Calendar, X, Trash2
 import type { Student } from '@/types';
 import type { GatePassData } from '@/components/print/GatePassPrintLayout';
 
-const CLASSES = ['All', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE  A', 'FIVE  B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT', 'NINE', 'TEN', 'TC', 'LS'];
+const CLASSES = ['All', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE A', 'FIVE B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT A', 'EIGHT B', 'NINE', 'TEN', 'TC', 'LS'];
 
 interface GatePassRecord {
     id: string;
