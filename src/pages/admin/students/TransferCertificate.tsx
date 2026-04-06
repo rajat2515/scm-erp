@@ -6,6 +6,7 @@ import { useReactToPrint } from 'react-to-print';
 import { TransferCertificatePrint, TCData } from '@/components/forms/TransferCertificatePrint';
 import { Student } from '@/types';
 import Swal from 'sweetalert2';
+import { CLASSES } from './StudentDirectory';
 
 const INITIAL_TC_DATA: TCData = {
     schoolNo: '81858',
@@ -246,8 +247,8 @@ const TransferCertificate: React.FC = () => {
                                     onChange={e => setFilterClass(e.target.value)}
                                 >
                                     <option value="">All Classes</option>
-                                    {['NURSERY', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map(c => (
-                                        <option key={c} value={c}>Class {c}</option>
+                                    {CLASSES.filter(c => c !== 'All').map(c => (
+                                        <option key={c} value={c}>{c}</option>
                                     ))}
                                 </select>
                                 <select 
