@@ -43,8 +43,8 @@ export const TransferCertificatePrint = React.forwardRef<HTMLDivElement, Props>(
         <div ref={ref} className="hidden print:block bg-white p-0 m-0" style={{ width: '210mm', minHeight: '297mm', color: 'black', fontFamily: "'Times New Roman', Times, serif" }}>
             <div className="p-6">
                 {/* Header Section */}
-                <div className="flex items-center gap-4 border-b-2 border-black pb-2 mb-2">
-                    <img src="/school-logo.png" alt="Logo" className="w-16 h-16 object-contain" />
+                <div className="flex items-center justify-between gap-4 border-b-2 border-black pb-2 mb-2">
+                    <img src="/school-logo.png" alt="Logo" className="w-24 h-24 object-contain" />
                     <div className="flex-1 text-center">
                         <h1 className="text-3xl font-bold tracking-tight" style={{ color: '#1e3a8a' }}>SCM CHILDREN ACADEMY</h1>
                         <p className="text-[10px] font-semibold">Ward No 9, Town - Haldaur, District - Bijnor, U.P. Pin - 246726, Mob: 01342297277, 9319787083</p>
@@ -54,6 +54,7 @@ export const TransferCertificatePrint = React.forwardRef<HTMLDivElement, Props>(
                             <span>Email: scmchildrenacademy@gmail.com</span>
                         </div>
                     </div>
+                    <img src="/cbse-logo.png" alt="CBSE Logo" className="w-20 h-20 object-contain" />
                 </div>
 
                 {/* Title */}
@@ -136,7 +137,7 @@ export const TransferCertificatePrint = React.forwardRef<HTMLDivElement, Props>(
                 </div>
 
                 {/* Footer Signatures */}
-                <div className="mt-8 flex justify-between items-end px-4">
+                <div className="mt-24 flex justify-between items-end px-4">
                     <div className="text-center">
                         <p className="font-bold text-xs">Prepared By</p>
                         <p className="text-[9px] text-gray-500">(Name & Designation)</p>
