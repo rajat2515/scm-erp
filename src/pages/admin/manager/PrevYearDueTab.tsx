@@ -11,9 +11,9 @@ import { CLASSES } from '../students/StudentDirectory';
 const ANNUAL_FEE = 1200;
 const EXAM_FEE   = 200;
 
-// Generate academic years from 2018-19 to 2024-25
+// Generate academic years from 2018-19 to 2025-26
 const ACADEMIC_YEARS: string[] = [];
-for (let y = 2018; y <= 2024; y++) {
+for (let y = 2018; y <= 2025; y++) {
     ACADEMIC_YEARS.push(`${y}-${String(y + 1).slice(2)}`);
 }
 
