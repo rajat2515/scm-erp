@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
 import { Search, Printer, FileBadge, Loader2, ClipboardList, Calendar, X, Trash2 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import type { Student } from '@/types';
 import type { GatePassData } from '@/components/print/GatePassPrintLayout';
 
@@ -366,14 +367,31 @@ export default function GatePass() {
     };
 
     const handleDeleteRecord = async (id: string) => {
-        if (!window.confirm('Are you sure you want to delete this gate pass record?')) return;
-        
-        try {
-            const { error } = await supabase.from('gate_pass_records').delete().eq('id', id);
-            if (error) throw error;
-            setRecords(prev => prev.filter(r => r.id !== id));
-        } catch (err: any) {
-            setRecordsError('Failed to delete record: ' + err.message);
+        const result = await Swal.fire({
+            title: 'Delete record?',
+            text: "Are you sure you want to delete this gate pass record? This cannot be undone.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            try {
+                const { error } = await supabase.from('gate_pass_records').delete().eq('id', id);
+                if (error) throw error;
+                setRecords(prev => prev.filter(r => r.id !== id));
+                Swal.fire({
+                    title: 'Deleted!',
+                    text: 'The gate pass record has been deleted.',
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            } catch (err: any) {
+                Swal.fire('Error!', 'Failed to delete record: ' + err.message, 'error');
+            }
         }
     };
 

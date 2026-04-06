@@ -60,6 +60,7 @@ import {
     Search, Loader2, X, Printer, MapPin, Calendar, CreditCard, ChevronDown, CheckCircle,
     Clock, CheckCircle2, AlertCircle, Bus, Trash2, ClipboardList
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import { CLASSES } from '../students/StudentDirectory';
 
 /* ─── Constants ───────────────────────────────────────────── */
@@ -276,10 +277,22 @@ const TransportLedger: React.FC = () => {
     }, [classFilter]);
 
     const handleDelete = async (id: number) => {
-        if (!confirm('Are you sure you want to delete this transport fee record? This action cannot be undone.')) return;
-        setLoading(true);
-        await supabase.from('transport_fees').delete().eq('id', id);
-        fetchRecords(classFilter);
+        const result = await Swal.fire({
+            title: 'Delete transaction?',
+            text: 'Are you sure you want to delete this transport fee record? This action cannot be undone.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            setLoading(true);
+            await supabase.from('transport_fees').delete().eq('id', id);
+            fetchRecords(classFilter);
+            Swal.fire('Deleted!', 'Transaction record has been removed.', 'success');
+        }
     };
 
     return (
@@ -622,12 +635,24 @@ const TransportFeeTab: React.FC = () => {
 
     /* ── Delete Receipt ─────────────────────────────────────── */
     const handleDeleteReceipt = async (id: number) => {
-        if (!confirm('Are you sure you want to delete this payment? This will mark the months as unpaid again.')) return;
-        const { error } = await supabase.from('transport_fees').delete().eq('id', id);
-        if (error) {
-            alert('Failed to delete: ' + error.message);
-        } else {
-            if (student) pickStudent(student); // Refresh
+        const result = await Swal.fire({
+            title: 'Delete payment?',
+            text: 'Are you sure you want to delete this payment? This will mark the months as unpaid again.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            const { error } = await supabase.from('transport_fees').delete().eq('id', id);
+            if (error) {
+                Swal.fire('Error!', 'Failed to delete: ' + error.message, 'error');
+            } else {
+                Swal.fire('Deleted!', 'Payment record has been removed.', 'success');
+                if (student) pickStudent(student); // Refresh
+            }
         }
     };
 

@@ -5,6 +5,7 @@ import {
     CheckCircle2, AlertCircle, Trash2, X, History,
     IndianRupee, Calendar, CreditCard, BookOpen,
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import { CLASSES } from '../students/StudentDirectory';
 
 /* ─── Constants ───────────────────────────────────────────── */
@@ -507,11 +508,23 @@ const StudentDetail: React.FC<StudentDetailProps> = ({ student, onBack }) => {
     useEffect(() => { loadDues(); }, [loadDues]);
 
     const handleDelete = async (due: DueRow) => {
-        if (!confirm(`Delete "${due.month}" due entry? This cannot be undone.`)) return;
-        if (due.id) {
-            await supabase.from('previous_year_dues').delete().eq('id', due.id);
+        const result = await Swal.fire({
+            title: 'Delete due entry?',
+            text: `Are you sure you want to delete the "${due.month}" due entry? This cannot be undone.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            if (due.id) {
+                await supabase.from('previous_year_dues').delete().eq('id', due.id);
+            }
+            loadDues();
+            Swal.fire('Deleted!', 'Due entry has been removed.', 'success');
         }
-        loadDues();
     };
 
     // Group dues by academic year

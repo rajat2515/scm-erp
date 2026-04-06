@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppShell from '@/components/layout/AppShell';
 import { FileText, Download, Printer, UserPlus, FileSignature, Car, GraduationCap, Users } from 'lucide-react';
+import Swal from 'sweetalert2';
 import { useReactToPrint } from 'react-to-print';
 import { StudentRegistrationPrint } from '@/components/forms/StudentRegistrationPrint';
 import { StaffRegistrationPrint } from '@/components/forms/StaffRegistrationPrint';
@@ -90,7 +91,12 @@ const FormsCenter: React.FC = () => {
             navigate(form.path);
             return;
         }
-        alert(`Print functionality for ${form.title} will be implemented here. You can connect it to a PDF or an HTML printable area.`);
+        Swal.fire({
+            title: 'Print Form',
+            text: `Print functionality for ${form.title} will be implemented here.`,
+            icon: 'info',
+            confirmButtonColor: '#3085d6'
+        });
     };
 
     const handleDownload = (form: FormTemplate) => {
@@ -102,7 +108,12 @@ const FormsCenter: React.FC = () => {
             navigate(form.path);
             return;
         }
-        alert(`Download for ${form.title}. Place the corresponding PDF in the public folder to enable real downloads.`);
+        Swal.fire({
+            title: 'Download Form',
+            text: `Download for ${form.title} will be available soon.`,
+            icon: 'info',
+            confirmButtonColor: '#3085d6'
+        });
     };
 
     const activeForms = FORMS.filter(f => f.category === activeTab);

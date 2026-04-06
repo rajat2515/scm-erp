@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
-import { Search, Printer, User, FileText, ChevronRight, Save, Layout } from 'lucide-react';
+import { Search, Printer, User, FileText, ChevronRight, Save, Layout, AlertTriangle, Trash2 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { TransferCertificatePrint, TCData } from '@/components/forms/TransferCertificatePrint';
 import { Student } from '@/types';
+import Swal from 'sweetalert2';
 
 const INITIAL_TC_DATA: TCData = {
     schoolNo: '81858',
@@ -39,44 +40,100 @@ const INITIAL_TC_DATA: TCData = {
     issueDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-')
 };
 
+function NumberToWords(dateStr: string) {
+    if (!dateStr) return '';
+    const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+    const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
+    const tens = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
+    
+    const numToWords = (num: number): string => {
+        if (num < 20) return ones[num];
+        if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + ones[num % 10] : '');
+        if (num < 1000) return ones[Math.floor(num / 100)] + ' HUNDRED' + (num % 100 !== 0 ? ' AND ' + numToWords(num % 100) : '');
+        if (num < 10000) return numToWords(Math.floor(num / 1000)) + ' THOUSAND' + (num % 1000 !== 0 ? ' ' + numToWords(num % 1000) : '');
+        return num.toString();
+    };
+
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return '';
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    
+    if (isNaN(day) || isNaN(month) || isNaN(year)) return '';
+    
+    return `${numToWords(day)} ${months[month - 1]} ${numToWords(year)}`;
+}
+
+export interface TCLog {
+    id: string;
+    student_sr_no: number;
+    pupil_name: string;
+    class: string;
+    action: string;
+    created_at: string;
+}
+
 const TransferCertificate: React.FC = () => {
     const [search, setSearch] = useState('');
+    const [filterClass, setFilterClass] = useState('');
+    const [filterStatus, setFilterStatus] = useState('');
     const [students, setStudents] = useState<Student[]>([]);
     const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
     const [tcData, setTcData] = useState<TCData>(INITIAL_TC_DATA);
     const [isSearching, setIsSearching] = useState(false);
+    const [recentLogs, setRecentLogs] = useState<TCLog[]>([]);
     
     const printRef = useRef<HTMLDivElement>(null);
-    const handlePrint = useReactToPrint({
+    const handlePrintExec = useReactToPrint({
         content: () => printRef.current,
     });
 
+    const fetchLogs = async () => {
+        const { data } = await supabase.from('tc_logs').select('*').order('created_at', { ascending: false }).limit(10);
+        if (data) setRecentLogs(data as TCLog[]);
+    };
+
     useEffect(() => {
-        if (search.length > 2) {
-            const delayDebounceFn = setTimeout(() => {
-                const fetchStudents = async () => {
-                    setIsSearching(true);
-                    const { data, error } = await supabase
-                        .from('students')
-                        .select('*')
-                        .or(`name.ilike.%${search}%,sr_no.eq.${parseInt(search) || 0}`)
-                        .limit(5);
-                    if (!error && data) setStudents(data as Student[]);
-                    setIsSearching(false);
-                };
-                fetchStudents();
-            }, 300);
-            return () => clearTimeout(delayDebounceFn);
-        } else {
-            setStudents([]);
-        }
-    }, [search]);
+        fetchLogs();
+    }, []);
+
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {
+            const fetchStudents = async () => {
+                if (!search && !filterClass && !filterStatus) {
+                    setStudents([]);
+                    return;
+                }
+                setIsSearching(true);
+                let query = supabase.from('students').select('*').limit(10);
+                
+                if (search) {
+                    query = query.or(`name.ilike.%${search}%,sr_no.eq.${parseInt(search) || 0}`);
+                }
+                if (filterClass) {
+                    query = query.eq('class', filterClass);
+                }
+                if (filterStatus) {
+                    query = query.eq('status', filterStatus);
+                }
+                
+                const { data, error } = await query;
+                if (!error && data) setStudents(data as Student[]);
+                setIsSearching(false);
+            };
+            fetchStudents();
+        }, 300);
+        return () => clearTimeout(delayDebounceFn);
+    }, [search, filterClass, filterStatus]);
 
     const handleSelectStudent = (student: Student) => {
         setSelectedStudent(student);
         setSearch('');
         setStudents([]);
         
+        const dobWords = student.dob ? NumberToWords(student.dob) : '';
+
         // Auto-fill form
         setTcData({
             ...INITIAL_TC_DATA,
@@ -86,6 +143,7 @@ const TransferCertificate: React.FC = () => {
             motherName: student.mother_name || '',
             fatherName: student.father_name || '',
             dobFig: student.dob || '',
+            dobWords: dobWords,
             lastClass: student.class || '',
             nationality: student.nationality || 'INDIAN',
             category: (student.caste || 'GENERAL').toUpperCase(),
@@ -93,7 +151,81 @@ const TransferCertificate: React.FC = () => {
     };
 
     const handleInputChange = (field: keyof TCData, value: string) => {
-        setTcData(prev => ({ ...prev, [field]: value }));
+        if (field === 'dobFig') {
+            setTcData(prev => ({ ...prev, [field]: value, dobWords: NumberToWords(value) }));
+        } else {
+            setTcData(prev => ({ ...prev, [field]: value }));
+        }
+    };
+
+    const handlePrintAndLog = async () => {
+        if (!selectedStudent) return;
+        
+        await supabase.from('tc_logs').insert([{
+            student_sr_no: selectedStudent.sr_no,
+            pupil_name: selectedStudent.name,
+            class: selectedStudent.class,
+            action: 'generated'
+        }]);
+        
+        fetchLogs();
+        handlePrintExec();
+    };
+
+    const transferToTC = async (log: TCLog) => {
+        const result = await Swal.fire({
+            title: 'Are you sure?',
+            text: `You are about to transfer ${log.pupil_name} out of class. This action cannot be easily undone!`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Yes, transfer to TC!'
+        });
+
+        if (result.isConfirmed) {
+            const { error } = await supabase
+                .from('students')
+                .update({ status: 'transferred' })
+                .eq('sr_no', log.student_sr_no);
+
+            if (error) {
+                Swal.fire({
+                    title: 'Error!',
+                    text: 'Failed to transfer student.',
+                    icon: 'error',
+                });
+            } else {
+                Swal.fire({
+                    title: 'Transferred!',
+                    text: `${log.pupil_name} has been marked as transferred.`,
+                    icon: 'success',
+                });
+                // optionally we could update the log to show action complete, but status change is enough
+            }
+        }
+    };
+
+    const handleDeleteLog = async (logId: string) => {
+        const result = await Swal.fire({
+            title: 'Delete log?',
+            text: "Are you sure you want to delete this TC log? This cannot be undone.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            const { error } = await supabase.from('tc_logs').delete().eq('id', logId);
+            if (error) {
+                Swal.fire('Error!', 'Failed to delete log.', 'error');
+            } else {
+                fetchLogs();
+                Swal.fire('Deleted!', 'The log has been deleted.', 'success');
+            }
+        }
     };
 
     return (
@@ -104,47 +236,74 @@ const TransferCertificate: React.FC = () => {
                 <div className="lg:col-span-1 space-y-6">
                     <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
                         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4">Find Student</h3>
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search by name or SR no..."
-                                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                            />
-                            
-                            {/* Search Results */}
-                            {students.length > 0 && (
-                                <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                                    {students.map((s) => (
-                                        <button
-                                            key={s.sr_no}
-                                            onClick={() => handleSelectStudent(s)}
-                                            className="w-full text-left px-4 py-3 hover:bg-muted transition-colors flex items-center gap-3 border-b border-border last:border-0"
-                                        >
-                                            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold">
-                                                {s.name[0]}
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-semibold">{s.name}</p>
-                                                <p className="text-[10px] text-muted-foreground uppercase">SR {s.sr_no} • Class {s.class}</p>
-                                            </div>
-                                            <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
-                                        </button>
+                        
+                        <div className="space-y-3 relative z-30">
+                            {/* Filters Row */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <select 
+                                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                    value={filterClass}
+                                    onChange={e => setFilterClass(e.target.value)}
+                                >
+                                    <option value="">All Classes</option>
+                                    {['NURSERY', 'LKG', 'UKG', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map(c => (
+                                        <option key={c} value={c}>Class {c}</option>
                                     ))}
-                                </div>
-                            )}
+                                </select>
+                                <select 
+                                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                    value={filterStatus}
+                                    onChange={e => setFilterStatus(e.target.value)}
+                                >
+                                    <option value="">All Statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                    <option value="transferred">Transferred (TC)</option>
+                                </select>
+                            </div>
+
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <input
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    placeholder="Search by name or SR no..."
+                                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                />
+                                
+                                {/* Search Results */}
+                                {students.length > 0 && (
+                                    <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2">
+                                        {students.map((s) => (
+                                            <button
+                                                key={s.sr_no}
+                                                onClick={() => handleSelectStudent(s)}
+                                                className="w-full text-left px-4 py-3 hover:bg-muted transition-colors flex items-center gap-3 border-b border-border last:border-0"
+                                            >
+                                                <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold">
+                                                    {s.name[0]}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold">{s.name}</p>
+                                                    <p className="text-[10px] text-muted-foreground uppercase">SR {s.sr_no} • Class {s.class} • {s.status}</p>
+                                                </div>
+                                                <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         
                         {selectedStudent ? (
-                            <div className="mt-6 p-4 bg-primary/5 border border-primary/20 rounded-xl animate-in zoom-in-95">
+                            <div className="mt-6 p-4 bg-primary/5 border border-primary/20 rounded-xl animate-in zoom-in-95 relative z-10">
                                 <div className="flex items-center gap-3 mb-4">
                                     <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white text-lg font-bold">
                                         {selectedStudent.name[0]}
                                     </div>
                                     <div>
                                         <h4 className="font-bold text-foreground">{selectedStudent.name}</h4>
-                                        <p className="text-xs text-muted-foreground">Class {selectedStudent.class} • Roll {selectedStudent.roll_no}</p>
+                                        <p className="text-xs text-muted-foreground">Class {selectedStudent.class} • Status: {selectedStudent.status}</p>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
@@ -166,27 +325,50 @@ const TransferCertificate: React.FC = () => {
                         )}
                     </div>
                     
-                    {/* Recent TC History would go here */}
+                    {/* Recent TC History */}
                     <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <FileText className="w-4 h-4 text-primary" />
-                            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Quick Tips</h3>
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Recent TC Logs</h3>
                         </div>
-                        <ul className="text-xs text-muted-foreground space-y-3">
-                            <li className="flex gap-2">
-                                <div className="w-1 h-1 rounded-full bg-primary mt-1.5 shrink-0" />
-                                All fields are editable even after auto-filling from student record.
-                            </li>
-                            <li className="flex gap-2">
-                                <div className="w-1 h-1 rounded-full bg-primary mt-1.5 shrink-0" />
-                                Use "Print Now" to generate the final A4 certificate.
-                            </li>
-                        </ul>
+                        {recentLogs.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-4">No TC generated yet.</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {recentLogs.map(log => (
+                                    <div key={log.id} className="p-3 bg-muted/50 rounded-xl border border-border flex flex-col gap-2">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <p className="text-sm font-bold">{log.pupil_name}</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase">SR: {log.student_sr_no} • Class: {log.class}</p>
+                                            </div>
+                                            <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full">{new Date(log.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                        <div className="flex gap-2 w-full mt-1">
+                                            <button 
+                                                onClick={() => transferToTC(log)}
+                                                className="text-xs flex-1 flex items-center justify-center gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 py-1.5 rounded-lg transition-colors border border-red-500/20"
+                                            >
+                                                <AlertTriangle className="w-3 h-3" />
+                                                Transfer student to TC
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDeleteLog(log.id)}
+                                                className="text-xs px-2.5 flex items-center justify-center bg-background hover:bg-red-500/10 text-muted-foreground hover:text-red-500 py-1.5 rounded-lg transition-colors border border-border"
+                                                title="Delete Log"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Right Panel: TC Details Form */}
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2 relative z-0">
                     <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
                         <div className="p-6 border-b border-border flex items-center justify-between bg-muted/30">
                             <div className="flex items-center gap-3">
@@ -200,7 +382,7 @@ const TransferCertificate: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={handlePrint}
+                                    onClick={handlePrintAndLog}
                                     disabled={!selectedStudent}
                                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-background border border-border text-foreground text-sm font-bold hover:bg-muted transition-all disabled:opacity-50"
                                 >
@@ -208,7 +390,7 @@ const TransferCertificate: React.FC = () => {
                                     Print TC
                                 </button>
                                 <button
-                                    onClick={handlePrint}
+                                    onClick={handlePrintAndLog}
                                     disabled={!selectedStudent}
                                     className="flex items-center gap-2 px-6 py-2.5 rounded-xl gradient-primary text-white text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-all disabled:opacity-50 disabled:shadow-none"
                                 >

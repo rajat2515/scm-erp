@@ -5,6 +5,7 @@ import {
     Search, CheckCircle2, AlertCircle, Trash2,
     BookOpen, Users, TrendingDown, ChevronDown, X, Loader2, Bus, Settings2, History,
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import TransportFeeTab from './TransportFeeTab';
 import FeeStructureTab from './FeeStructureTab';
 import PrevYearDueTab from './PrevYearDueTab';
@@ -635,15 +636,27 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
     const handleDeleteReceipt = async (id: number) => {
         if (!selected) return;
-        if (!confirm('Are you sure you want to delete this payment record? This will revert the month to unpaid.')) return;
-        setSaving(true);
-        const { error } = await supabase.from('fee_payments').delete().eq('id', id);
-        if (error) {
-            alert('Failed to delete payment: ' + error.message);
-        } else {
-            loadPayments(selected.sr_no);
+        const result = await Swal.fire({
+            title: 'Delete payment record?',
+            text: 'Are you sure you want to delete this payment record? This will revert the month to unpaid.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            setSaving(true);
+            const { error } = await supabase.from('fee_payments').delete().eq('id', id);
+            if (error) {
+                Swal.fire('Error!', 'Failed to delete payment: ' + error.message, 'error');
+            } else {
+                Swal.fire('Deleted!', 'Payment record has been removed.', 'success');
+                loadPayments(selected.sr_no);
+            }
+            setSaving(false);
         }
-        setSaving(false);
     };
 
     return (
@@ -1021,21 +1034,33 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
     }, [monthFilter, classFilter, refresh]);
 
     const handleDelete = async (p: any) => {
-        if (!confirm('Are you sure you want to delete this payment record?')) return;
-        setLoading(true);
-        let error;
-        if (p.id) {
-            ({ error } = await supabase.from('fee_payments').delete().eq('id', p.id));
-        }
-        // Fallback: delete by sr_no + month if id-based delete failed or id was missing
-        if (!p.id || error) {
-            ({ error } = await supabase.from('fee_payments').delete().eq('sr_no', p.sr_no).eq('month', p.month));
-        }
-        if (error) {
-            alert('Failed to delete transaction: ' + error.message);
-            setLoading(false);
-        } else {
-            loadRecords();
+        const result = await Swal.fire({
+            title: 'Delete payment record?',
+            text: 'Are you sure you want to delete this payment record?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            setLoading(true);
+            let error;
+            if (p.id) {
+                ({ error } = await supabase.from('fee_payments').delete().eq('id', p.id));
+            }
+            // Fallback: delete by sr_no + month if id-based delete failed or id was missing
+            if (!p.id || error) {
+                ({ error } = await supabase.from('fee_payments').delete().eq('sr_no', p.sr_no).eq('month', p.month));
+            }
+            if (error) {
+                Swal.fire('Error!', 'Failed to delete transaction: ' + error.message, 'error');
+                setLoading(false);
+            } else {
+                Swal.fire('Deleted!', 'Payment record has been removed.', 'success');
+                loadRecords();
+            }
         }
     };
 

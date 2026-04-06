@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
 import { Search, Plus, Pencil, Trash2, X, GraduationCap, Building2, UserCircle2, Save, Loader2, Eye, IndianRupee, Download, Printer, FileText, BookOpen, Phone, MapPin, CreditCard, Mail, Award, Users } from 'lucide-react';
+import Swal from 'sweetalert2';
 import type { StaffProfile } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -107,23 +108,47 @@ export default function StaffDirectory() {
     };
 
     const handleDeleteTeacher = async (id: number, name: string) => {
-        if (!confirm(`Remove ${name} from teacher records?`)) return;
-        const { error } = await supabase.from('teacher_registrations').delete().eq('id', id);
-        if (!error) {
-            setTeachers(prev => prev.filter(t => t.id !== id));
-            if (selectedTeacher?.id === id) setSelectedTeacher(null);
-        } else alert('Failed to delete: ' + error.message);
+        const result = await Swal.fire({
+            title: 'Delete Teacher?',
+            text: `Are you sure you want to remove ${name} from teacher records?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            const { error } = await supabase.from('teacher_registrations').delete().eq('id', id);
+            if (!error) {
+                setTeachers(prev => prev.filter(t => t.id !== id));
+                if (selectedTeacher?.id === id) setSelectedTeacher(null);
+                Swal.fire('Deleted!', 'Teacher has been removed.', 'success');
+            } else {
+                Swal.fire('Error!', 'Failed to delete: ' + error.message, 'error');
+            }
+        }
     };
 
     const handleDelete = async (id: string, name: string) => {
-        if (!confirm(`Are you sure you want to remove ${name} from the staff directory?`)) return;
-        
-        // Ensure cascading works in attendance, or attendance is kept? The SQL uses ON DELETE CASCADE.
-        const { error } = await supabase.from('staff_profiles').delete().eq('id', id);
-        if (!error) {
-            setStaff(prev => prev.filter(s => s.id !== id));
-        } else {
-            alert('Failed to delete: ' + error.message);
+        const result = await Swal.fire({
+            title: 'Remove Staff?',
+            text: `Are you sure you want to remove ${name} from the staff directory?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+
+        if (result.isConfirmed) {
+            const { error } = await supabase.from('staff_profiles').delete().eq('id', id);
+            if (!error) {
+                setStaff(prev => prev.filter(s => s.id !== id));
+                Swal.fire('Deleted!', 'Staff member has been removed.', 'success');
+            } else {
+                Swal.fire('Error!', 'Failed to delete: ' + error.message, 'error');
+            }
         }
     };
 

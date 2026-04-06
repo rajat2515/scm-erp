@@ -32,6 +32,7 @@
         "react-hook-form": "^7.52.1",
         "react-router-dom": "^6.24.1",
         "react-to-print": "^2.15.1",
+        "sweetalert2": "^11.26.24",
         "tailwind-merge": "^2.3.0",
         "tailwindcss-animate": "^1.0.7",
         "xlsx": "^0.18.5",

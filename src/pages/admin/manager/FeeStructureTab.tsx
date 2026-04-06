@@ -51,6 +51,7 @@ import { supabase } from '@/config/supabaseClient';
 import {
     Loader2, Plus, Pencil, Trash2, CheckCircle2, AlertCircle, X, Save, Bus, BookOpen,
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 /* ─── Types ───────────────────────────────────────────────── */
 interface FeeRow { id: number; class: string; monthly_fee: number; }
@@ -103,9 +104,20 @@ const TuitionSection: React.FC = () => {
     };
 
     const deleteRow = async (id: number) => {
-        if (!confirm('Delete this fee entry?')) return;
-        await supabase.from('fee_structure').delete().eq('id', id);
-        await load();
+        const result = await Swal.fire({
+            title: 'Delete Fee Entry?',
+            text: 'Are you sure you want to delete this fee entry?',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+        if (result.isConfirmed) {
+            await supabase.from('fee_structure').delete().eq('id', id);
+            await load();
+            Swal.fire('Deleted!', 'Fee entry has been removed.', 'success');
+        }
     };
 
     const handleAdd = async () => {
@@ -290,9 +302,20 @@ const TransportVillagesSection: React.FC = () => {
     };
 
     const deleteRow = async (id: number) => {
-        if (!confirm('Delete this village? This cannot be undone.')) return;
-        await supabase.from('transport_villages').delete().eq('id', id);
-        await load();
+        const result = await Swal.fire({
+            title: 'Delete Village?',
+            text: 'Are you sure you want to delete this village? This cannot be undone.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, delete it!'
+        });
+        if (result.isConfirmed) {
+            await supabase.from('transport_villages').delete().eq('id', id);
+            await load();
+            Swal.fire('Deleted!', 'Village has been removed.', 'success');
+        }
     };
 
     const handleAdd = async () => {

@@ -73,6 +73,7 @@ import {
     TrendingUp, TrendingDown, Users, DollarSign, AlertTriangle,
     CheckCircle, Clock, X, BarChart3
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
 import { CLASSES } from '../students/StudentDirectory';
 
@@ -655,7 +656,13 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             .map(r => `${r.name} (SR ${r.sr_no}, ${r.class}) — Balance: ₹${r.balance.toLocaleString('en-IN')}`)
             .join('\n');
         navigator.clipboard.writeText(text).then(() => {
-            alert(`Copied ${defaulters.length} defaulters to clipboard!`);
+            Swal.fire({
+                title: 'Copied!',
+                text: `Copied ${defaulters.length} defaulters to clipboard!`,
+                icon: 'success',
+                timer: 2000,
+                showConfirmButton: false
+            });
         });
     };
 
