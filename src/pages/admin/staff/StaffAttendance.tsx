@@ -4,6 +4,14 @@ import AppShell from '@/components/layout/AppShell';
 import { Check, Calendar, Search, Loader2, Save, UserCircle2, BarChart2, X, ChevronLeft, ChevronRight, ClipboardList, CalendarDays, LineChart } from 'lucide-react';
 import type { StaffProfile, StaffAttendance, WorkingDay } from '@/types';
 
+// Unified staff record that merges staff_profiles and teacher_registrations
+interface UnifiedStaff {
+    uid: string;          // unique key: 'sp_<id>' or 'tr_<id>'
+    name: string;
+    designation: string;
+    source: 'staff_profiles' | 'teacher_registrations';
+}
+
 type AttendanceStatus = 'Present' | 'Absent' | 'Half-day' | 'Leave';
 type TabKey = 'record' | 'calendar' | 'analytics';
 
@@ -33,17 +41,46 @@ function getMonthName(month: number) {
 
 export default function StaffAttendancePage() {
     const [activeTab, setActiveTab] = useState<TabKey>('record');
-    const [staff, setStaff] = useState<StaffProfile[]>([]);
+    const [allStaff, setAllStaff] = useState<UnifiedStaff[]>([]);
     const [loadingStaff, setLoadingStaff] = useState(true);
 
     useEffect(() => {
         const fetchStaff = async () => {
-            const { data, error } = await supabase
+            // Fetch non-teacher staff from staff_profiles
+            const { data: spData } = await supabase
                 .from('staff_profiles')
-                .select('*')
+                .select('id, name, designation, status')
                 .eq('status', 'active')
                 .order('name');
-            if (data) setStaff(data as StaffProfile[]);
+
+            // Fetch all teachers from teacher_registrations
+            const { data: trData } = await supabase
+                .from('teacher_registrations')
+                .select('id, teacher_name, designation')
+                .order('teacher_name');
+
+            const unified: UnifiedStaff[] = [];
+
+            // Add non-teacher staff (exclude teacher designations to avoid duplicates)
+            if (spData) {
+                (spData as any[]).forEach(s => {
+                    const cat = getStaffCategory(s.designation || '');
+                    if (cat !== 'teachers') {
+                        unified.push({ uid: `sp_${s.id}`, name: s.name, designation: s.designation || '', source: 'staff_profiles' });
+                    }
+                });
+            }
+
+            // Add all teachers from teacher_registrations
+            if (trData) {
+                (trData as any[]).forEach(t => {
+                    unified.push({ uid: `tr_${t.id}`, name: t.teacher_name, designation: t.designation || 'Teacher', source: 'teacher_registrations' });
+                });
+            }
+
+            // Sort combined list by name
+            unified.sort((a, b) => a.name.localeCompare(b.name));
+            setAllStaff(unified);
             setLoadingStaff(false);
         };
         fetchStaff();
@@ -77,9 +114,9 @@ export default function StaffAttendancePage() {
                 <div className="py-20 flex justify-center"><Loader2 className="w-8 h-8 text-primary/40 animate-spin" /></div>
             ) : (
                 <>
-                    {activeTab === 'record' && <AttendanceRecordTab staff={staff} />}
+                    {activeTab === 'record' && <AttendanceRecordTab staff={allStaff} />}
                     {activeTab === 'calendar' && <WorkingDaysCalendarTab />}
-                    {activeTab === 'analytics' && <AnalyticsTab staff={staff} />}
+                    {activeTab === 'analytics' && <AnalyticsTab staff={allStaff} />}
                 </>
             )}
         </AppShell>
@@ -87,7 +124,7 @@ export default function StaffAttendancePage() {
 }
 
 // ─── Daily Record Tab ────────────────────────────────────────────────────────
-function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
+function AttendanceRecordTab({ staff }: { staff: UnifiedStaff[] }) {
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
     const [originalAttendance, setOriginalAttendance] = useState<Record<string, AttendanceStatus>>({});
@@ -125,8 +162,8 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
             
             // For staff without records today, default to 'Absent'
             staff.forEach(s => {
-                if (!attMap[s.id]) {
-                    attMap[s.id] = 'Absent'; // Auto-absent assumption
+                if (!attMap[s.uid]) {
+                    attMap[s.uid] = 'Absent';
                 }
             });
 
@@ -146,9 +183,9 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
         
         try {
             const payload = staff.map(s => ({
-                staff_id: s.id,
+                staff_id: s.uid,
                 date: date,
-                status: attendance[s.id]
+                status: attendance[s.uid] || 'Absent'
             }));
 
             const { error: upsertErr } = await supabase
@@ -171,12 +208,12 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
     const markAll = (status: AttendanceStatus) => {
         const newAtt = { ...attendance };
         const targetStaff = staffCategory === 'all' ? staff : staff.filter(s => getStaffCategory(s.designation) === staffCategory);
-        targetStaff.forEach(s => newAtt[s.id] = status);
+        targetStaff.forEach(s => { newAtt[s.uid] = status; });
         setAttendance(newAtt);
     };
 
     const filteredStaff = staff.filter(s => {
-        const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || (s.designation||'').toLowerCase().includes(search.toLowerCase());
+        const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || s.designation.toLowerCase().includes(search.toLowerCase());
         const matchesCategory = staffCategory === 'all' || getStaffCategory(s.designation) === staffCategory;
         return matchesSearch && matchesCategory;
     });
@@ -188,7 +225,11 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
             {/* Category Tabs */}
             <div className="flex bg-muted/50 p-1.5 rounded-2xl w-fit mb-5 overflow-x-auto">
                 {STAFF_CATEGORIES.map(cat => {
-                    const count = cat.key === 'all' ? staff.length : staff.filter(s => getStaffCategory(s.designation) === cat.key).length;
+                    const count = cat.key === 'all'
+                        ? staff.length
+                        : cat.key === 'teachers'
+                        ? staff.filter(s => s.source === 'teacher_registrations').length
+                        : staff.filter(s => s.source === 'staff_profiles' && getStaffCategory(s.designation) === cat.key).length;
                     return (
                         <button
                             key={cat.key}
@@ -288,10 +329,14 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
                             </thead>
                             <tbody className="divide-y divide-border">
                                 {filteredStaff.map(member => (
-                                    <tr key={member.id} className="hover:bg-muted/10 transition-colors">
+                                    <tr key={member.uid} className="hover:bg-muted/10 transition-colors">
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                                                    member.source === 'teacher_registrations'
+                                                        ? 'bg-indigo-100 text-indigo-700'
+                                                        : 'bg-primary/10 text-primary'
+                                                }`}>
                                                     {member.name.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
                                                 </div>
                                                 <div>
@@ -303,7 +348,7 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
                                         <td className="px-6 py-4 text-right">
                                             <div className="inline-flex bg-muted/40 p-1 rounded-xl border border-border/50">
                                                 {(['Present', 'Absent', 'Half-day', 'Leave'] as AttendanceStatus[]).map(status => {
-                                                    const isSelected = attendance[member.id] === status;
+                                                    const isSelected = attendance[member.uid] === status;
                                                     
                                                     let colors = 'text-muted-foreground hover:bg-muted';
                                                     if (isSelected) {
@@ -316,7 +361,7 @@ function AttendanceRecordTab({ staff }: { staff: StaffProfile[] }) {
                                                     return (
                                                         <button
                                                             key={status}
-                                                            onClick={() => setAttendance(p => ({...p, [member.id]: status}))}
+                                                            onClick={() => setAttendance(p => ({...p, [member.uid]: status}))}
                                                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${colors}`}
                                                         >
                                                             {status === 'Half-day' ? 'Half' : status}
@@ -559,7 +604,7 @@ function WorkingDaysCalendarTab() {
 }
 
 // ─── Analytics Tab ───────────────────────────────────────────────────────────
-function AnalyticsTab({ staff }: { staff: StaffProfile[] }) {
+function AnalyticsTab({ staff }: { staff: UnifiedStaff[] }) {
     const [month, setMonth] = useState(new Date().getMonth());
     const [year, setYear] = useState(new Date().getFullYear());
     const [loading, setLoading] = useState(true);
@@ -568,7 +613,7 @@ function AnalyticsTab({ staff }: { staff: StaffProfile[] }) {
     const [attendanceData, setAttendanceData] = useState<StaffAttendance[]>([]);
     const [search, setSearch] = useState('');
     
-    const [selectedStaff, setSelectedStaff] = useState<StaffProfile | null>(null);
+    const [selectedStaff, setSelectedStaff] = useState<UnifiedStaff | null>(null);
 
     useEffect(() => {
         loadAnalyticsData();
@@ -618,12 +663,12 @@ function AnalyticsTab({ staff }: { staff: StaffProfile[] }) {
 
     const filteredStaff = staff.filter(s => 
         s.name.toLowerCase().includes(search.toLowerCase()) || 
-        (s.designation||'').toLowerCase().includes(search.toLowerCase())
+        s.designation.toLowerCase().includes(search.toLowerCase())
     );
 
-    const getStats = (staffId: string) => {
+    const getStats = (uid: string) => {
         const stats = { Present: 0, Absent: 0, 'Half-day': 0, Leave: 0 };
-        const records = attendanceData.filter(a => a.staff_id === staffId);
+        const records = attendanceData.filter(a => a.staff_id === uid);
         const recordMap = Object.fromEntries(records.map(r => [r.date, r.status]));
 
         const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -640,8 +685,6 @@ function AnalyticsTab({ staff }: { staff: StaffProfile[] }) {
                     else if (status === 'Leave') stats.Leave++;
                     else if (status === 'Absent') stats.Absent++;
                 } else {
-                    // Check if date is strictly in the past or today, to penalize for absence
-                    // We shouldn't count future working days in the month as 'Absent' yet.
                     if (d <= new Date()) {
                         stats.Absent++;
                     }
@@ -707,12 +750,16 @@ function AnalyticsTab({ staff }: { staff: StaffProfile[] }) {
                             </thead>
                             <tbody className="divide-y divide-border">
                                 {filteredStaff.map(member => {
-                                    const stats = getStats(member.id);
+                                    const stats = getStats(member.uid);
                                     return (
-                                        <tr key={member.id} className="hover:bg-muted/10 transition-colors">
+                                        <tr key={member.uid} className="hover:bg-muted/10 transition-colors">
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                                                        member.source === 'teacher_registrations'
+                                                            ? 'bg-indigo-100 text-indigo-700'
+                                                            : 'bg-primary/10 text-primary'
+                                                    }`}>
                                                         {member.name.split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase()}
                                                     </div>
                                                     <div>
@@ -775,7 +822,7 @@ function AnalyticsTab({ staff }: { staff: StaffProfile[] }) {
                                     
                                     const wdData = workingDays[dateStr];
                                     const isWD = wdData?.is_working;
-                                    const record = attendanceData.find(a => a.staff_id === selectedStaff.id && a.date === dateStr);
+                                    const record = attendanceData.find(a => a.staff_id === selectedStaff.uid && a.date === dateStr);
                                     
                                     const displayDate = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', weekday: 'short' });
                                     

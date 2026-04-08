@@ -370,6 +370,20 @@ const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) =>
     );
 };
 
+/* ─── Previous Due Row type (local) ──────────────────────── */
+interface PrevDueRow {
+    id?: number;
+    sr_no: number;
+    academic_year: string;
+    month: string;
+    fee_type: string;
+    due_amount: number;
+    paid_amount: number;
+    discount: number;
+    paid_on?: string;
+    mode?: string;
+}
+
 /* ─── Collect Fee Tab ────────────────────────────────────── */
 const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const [query, setQuery] = useState('');
@@ -396,6 +410,11 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const [savingDiscount, setSavingDiscount] = useState(false);
     const [otherFeeAmount, setOtherFeeAmount] = useState('');
     const [otherFeeReason, setOtherFeeReason] = useState('');
+    const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+    // Previous year dues
+    const [prevDues, setPrevDues] = useState<PrevDueRow[]>([]);
+    const [prevDueCollect, setPrevDueCollect] = useState('');
 
     // Compute exactly what is due based on selected keys
     const baseTuition = selected ? monthlyFee(selected, feeStr) : 0;
@@ -412,7 +431,13 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     }).filter(x => (x.due - x.disc) > x.paid);
 
     const otherFee = Math.max(0, Number(otherFeeAmount) || 0);
-    const totalDue = itemsToCollect.reduce((s, i) => s + (i.due - i.paid - i.disc), 0) + otherFee;
+    const prevDueCollectAmt = Math.max(0, Number(prevDueCollect) || 0);
+
+    // Total outstanding previous dues
+    const totalPrevDueBalance = prevDues.reduce((s, d) => s + Math.max(0, d.due_amount - d.paid_amount - d.discount), 0);
+
+    const currentFeeTotal = itemsToCollect.reduce((s, i) => s + (i.due - i.paid - i.disc), 0) + otherFee;
+    const totalDue = currentFeeTotal + prevDueCollectAmt;
     const transactionDiscount = Number(discountInput) || 0;
     const grandTotal = Math.max(0, totalDue - transactionDiscount);
 
@@ -423,7 +448,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         } else {
             setPayAmount('');
         }
-    }, [grandTotal, selectedKeys]);
+    }, [grandTotal, selectedKeys, prevDueCollect]);
 
 
     const toggleKey = (key: string) => {
@@ -468,6 +493,16 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         setLoadingPay(false);
     }, []);
 
+    const loadPrevDues = useCallback(async (srNo: number) => {
+        const { data } = await supabase
+            .from('previous_year_dues')
+            .select('*')
+            .eq('sr_no', srNo)
+            .order('academic_year', { ascending: true })
+            .order('month', { ascending: true });
+        setPrevDues((data as PrevDueRow[]) || []);
+    }, []);
+
     const pickStudent = (s: Student) => {
         setSelected(s);
         setQuery(s.name);
@@ -478,7 +513,10 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         setDiscountInput('');
         setOtherFeeAmount('');
         setOtherFeeReason('');
+        setPrevDueCollect('');
+        setPrevDues([]);
         loadPayments(s.sr_no);
+        loadPrevDues(s.sr_no);
     };
 
     const handlePrintReceipt = (receiptNo?: string) => {
@@ -489,7 +527,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                 label: i.def.label,
                 amount: i.due - i.paid - i.disc
             })),
-            ...(otherFee > 0 ? [{ label: otherFeeReason || 'Other Fee', amount: otherFee }] : [])
+            ...(otherFee > 0 ? [{ label: otherFeeReason || 'Other Fee', amount: otherFee }] : []),
+            ...(prevDueCollectAmt > 0 ? [{ label: 'Previous Year Dues', amount: prevDueCollectAmt }] : []),
         ];
 
         const actualReceived = Math.min(Number(payAmount) || 0, grandTotal);
@@ -502,7 +541,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             discount: transactionDiscount,
             grandTotal: effectiveTotal,
             receiptNo: receiptNo || 'TUF-PROFORMA',
-            paymentDate: new Date().toISOString().split('T')[0],
+            paymentDate: paymentDate,
             paymentMode: payMode === 'split'
                 ? 'Split (' + [
                     (parseFloat(splitCash) || 0) > 0 ? `Cash: ₹${parseFloat(splitCash)}` : '',
@@ -536,8 +575,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             setSaveMsg({ type: 'error', text: 'Enter a valid amount or discount' }); 
             return; 
         }
-        if (itemsToCollect.length === 0 && otherFee <= 0) {
-            setSaveMsg({ type: 'error', text: 'Select months to collect or enter an other fee amount' });
+        if (itemsToCollect.length === 0 && otherFee <= 0 && prevDueCollectAmt <= 0) {
+            setSaveMsg({ type: 'error', text: 'Select months to collect, enter an other fee amount, or a previous due amount' });
             return;
         }
 
@@ -584,21 +623,69 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                 due_amount: item.due,
                 paid_amount: item.paid + allocate,
                 discount: item.disc + applyDisc,
-                paid_on: new Date().toISOString().split('T')[0],
+                paid_on: paymentDate,
                 mode: finalPayModeStr,
             });
         }
 
         // Save other fee as a separate record if present
         if (otherFee > 0) {
-            const otherKey = `Other: ${otherFeeReason || 'Other Fee'} - ${new Date().toISOString().split('T')[0]}`;
+            const otherKey = `Other: ${otherFeeReason || 'Other Fee'} - ${paymentDate}`;
             updates.push({
                 sr_no: selected.sr_no,
                 month: otherKey,
                 due_amount: otherFee,
                 paid_amount: Math.min(otherFee, remaining > 0 ? remaining : otherFee),
                 discount: 0,
-                paid_on: new Date().toISOString().split('T')[0],
+                paid_on: paymentDate,
+                mode: finalPayModeStr,
+            });
+        }
+
+        // ── Previous Dues: distribute collected amount across oldest-first unpaid rows ──
+        if (prevDueCollectAmt > 0) {
+            let prevRemaining = prevDueCollectAmt;
+            const prevUpdates: Partial<PrevDueRow>[] = [];
+
+            for (const due of prevDues) {
+                if (prevRemaining <= 0) break;
+                const bal = Math.max(0, due.due_amount - due.paid_amount - due.discount);
+                if (bal <= 0) continue;
+                const allocate = Math.min(bal, prevRemaining);
+                prevRemaining -= allocate;
+                prevUpdates.push({
+                    id: due.id,
+                    sr_no: due.sr_no,
+                    academic_year: due.academic_year,
+                    month: due.month,
+                    fee_type: due.fee_type as PrevDueRow['fee_type'],
+                    due_amount: due.due_amount,
+                    paid_amount: due.paid_amount + allocate,
+                    discount: due.discount,
+                    paid_on: paymentDate,
+                    mode: finalPayModeStr,
+                });
+            }
+
+            if (prevUpdates.length > 0) {
+                const { error: prevErr } = await supabase
+                    .from('previous_year_dues')
+                    .upsert(prevUpdates, { onConflict: 'sr_no,academic_year,month' });
+                if (prevErr) {
+                    setSaveMsg({ type: 'error', text: 'Error saving previous dues: ' + prevErr.message });
+                    setSaving(false);
+                    return;
+                }
+            }
+
+            // Also add a summary row to fee_payments so it shows in the ledger/receipt
+            updates.push({
+                sr_no: selected.sr_no,
+                month: `Previous Dues - ${paymentDate}`,
+                due_amount: prevDueCollectAmt,
+                paid_amount: prevDueCollectAmt,
+                discount: 0,
+                paid_on: paymentDate,
                 mode: finalPayModeStr,
             });
         }
@@ -624,11 +711,13 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             handlePrintReceipt(receiptId);
 
             loadPayments(selected.sr_no);
+            loadPrevDues(selected.sr_no);
             setSelectedKeys(new Set());
             setDiscountInput('');
             setPayAmount('');
             setOtherFeeAmount('');
             setOtherFeeReason('');
+            setPrevDueCollect('');
         } else {
             setSaving(false);
         }
@@ -648,10 +737,49 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
         if (result.isConfirmed) {
             setSaving(true);
+
+            // Fetch the record before deleting so we can reverse previous dues if needed
+            const { data: recData } = await supabase.from('fee_payments').select('*').eq('id', id).single();
+
             const { error } = await supabase.from('fee_payments').delete().eq('id', id);
             if (error) {
                 Swal.fire('Error!', 'Failed to delete payment: ' + error.message, 'error');
             } else {
+                // If this was a Previous Dues summary row, reverse the paid_amount in previous_year_dues
+                if (recData && String(recData.month).startsWith('Previous Dues')) {
+                    const amountToReverse = recData.paid_amount as number;
+                    const { data: pDues } = await supabase
+                        .from('previous_year_dues')
+                        .select('*')
+                        .eq('sr_no', selected.sr_no)
+                        .order('academic_year', { ascending: false })
+                        .order('month', { ascending: false });
+
+                    if (pDues && pDues.length > 0) {
+                        let toReverse = amountToReverse;
+                        const reversals: Partial<PrevDueRow>[] = [];
+                        for (const due of pDues as PrevDueRow[]) {
+                            if (toReverse <= 0) break;
+                            if (due.paid_amount <= 0) continue;
+                            const deduct = Math.min(due.paid_amount, toReverse);
+                            toReverse -= deduct;
+                            reversals.push({
+                                id: due.id,
+                                sr_no: due.sr_no,
+                                academic_year: due.academic_year,
+                                month: due.month,
+                                fee_type: due.fee_type,
+                                due_amount: due.due_amount,
+                                paid_amount: Math.max(0, due.paid_amount - deduct),
+                                discount: due.discount,
+                            });
+                        }
+                        if (reversals.length > 0) {
+                            await supabase.from('previous_year_dues').upsert(reversals, { onConflict: 'sr_no,academic_year,month' });
+                        }
+                        loadPrevDues(selected.sr_no);
+                    }
+                }
                 Swal.fire('Deleted!', 'Payment record has been removed.', 'success');
                 loadPayments(selected.sr_no);
             }
@@ -849,9 +977,65 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
 
 
+                            {/* Previous Dues Alert Banner */}
+                            {totalPrevDueBalance > 0 && (
+                                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                                                <History className="w-3.5 h-3.5" /> Previous Year Dues Outstanding
+                                            </p>
+                                            <p className="text-sm font-black text-amber-900 mt-0.5">{fmtINR(totalPrevDueBalance)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-2">
+                                        <label className="text-[10px] font-medium text-amber-700 block mb-1">Collect Now (partial or full)</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-700 text-sm font-bold">₹</span>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={totalPrevDueBalance}
+                                                value={prevDueCollect}
+                                                onChange={e => setPrevDueCollect(e.target.value)}
+                                                placeholder="0"
+                                                className="w-full pl-7 pr-3 py-1.5 rounded-lg border border-amber-300 bg-white text-sm font-bold text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                                            />
+                                        </div>
+                                        <div className="flex gap-1 mt-1.5 flex-wrap">
+                                            <button onClick={() => setPrevDueCollect(String(totalPrevDueBalance))}
+                                                className="px-2 py-0.5 text-[10px] font-semibold rounded border border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors">
+                                                Full ({fmtINR(totalPrevDueBalance)})
+                                            </button>
+                                            {[25, 50].map(pct => {
+                                                const amt = Math.round(totalPrevDueBalance * pct / 100);
+                                                return (
+                                                    <button key={pct} onClick={() => setPrevDueCollect(String(amt))}
+                                                        className="px-2 py-0.5 text-[10px] font-semibold rounded border border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors">
+                                                        {pct}% ({fmtINR(amt)})
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="space-y-3 pb-4 border-b border-border/60">
+                                {currentFeeTotal > 0 && (
+                                    <div className="flex justify-between items-center text-sm">
+                                        <span className="text-muted-foreground font-medium">Current Fees</span>
+                                        <span className="font-semibold text-foreground">{fmtINR(currentFeeTotal)}</span>
+                                    </div>
+                                )}
+                                {prevDueCollectAmt > 0 && (
+                                    <div className="flex justify-between items-center text-sm">
+                                        <span className="text-amber-700 font-medium">Previous Dues</span>
+                                        <span className="font-semibold text-amber-700">{fmtINR(prevDueCollectAmt)}</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-center text-sm">
-                                    <span className="text-muted-foreground font-medium">Total Balance</span>
+                                    <span className="text-muted-foreground font-medium">Total to Collect</span>
                                     <span className="font-bold text-red-600 text-base">{fmtINR(totalDue)}</span>
                                 </div>
                                 <div className="border-t border-border pt-2 flex justify-between items-center">
@@ -891,6 +1075,16 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                             />
                                         </div>
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground mb-1 block">Payment Date</label>
+                                    <input 
+                                        type="date" 
+                                        value={paymentDate} 
+                                        onChange={e => setPaymentDate(e.target.value)} 
+                                        className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/30 mb-4"
+                                    />
                                 </div>
 
                                 <div>
@@ -946,7 +1140,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
                                 <button
                                     onClick={handleSave}
-                                    disabled={saving || itemsToCollect.length === 0}
+                                    disabled={saving || (itemsToCollect.length === 0 && otherFee <= 0 && prevDueCollectAmt <= 0)}
                                     className="w-full flex items-center justify-center gap-2 py-3 rounded-xl gradient-primary text-white font-semibold text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-md mt-2"
                                 >
                                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -979,7 +1173,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                                     {isPartial && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">Partial</span>}
                                                 </div>
                                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                    <span>{new Date(p.created_at || p.paid_on || '').toLocaleDateString()}</span>
+                                                    <span>{new Date(p.paid_on || p.created_at || '').toLocaleDateString()}</span>
                                                     <span className="w-1 h-1 rounded-full bg-border"></span>
                                                     <span className="uppercase">{p.mode}</span>
                                                     {disc > 0 && <><span className="w-1 h-1 rounded-full bg-border"></span><span className="text-purple-600 font-medium">Disc: {fmtINR(disc)}</span></>}
@@ -1058,6 +1252,40 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                 Swal.fire('Error!', 'Failed to delete transaction: ' + error.message, 'error');
                 setLoading(false);
             } else {
+                // If this was a Previous Dues summary row, reverse the paid_amount in previous_year_dues
+                if (String(p.month).startsWith('Previous Dues')) {
+                    const amountToReverse = p.paid_amount as number;
+                    const { data: pDues } = await supabase
+                        .from('previous_year_dues')
+                        .select('*')
+                        .eq('sr_no', p.sr_no)
+                        .order('academic_year', { ascending: false })
+                        .order('month', { ascending: false });
+
+                    if (pDues && pDues.length > 0) {
+                        let toReverse = amountToReverse;
+                        const reversals: any[] = [];
+                        for (const due of pDues as any[]) {
+                            if (toReverse <= 0) break;
+                            if (due.paid_amount <= 0) continue;
+                            const deduct = Math.min(due.paid_amount, toReverse);
+                            toReverse -= deduct;
+                            reversals.push({
+                                id: due.id,
+                                sr_no: due.sr_no,
+                                academic_year: due.academic_year,
+                                month: due.month,
+                                fee_type: due.fee_type,
+                                due_amount: due.due_amount,
+                                paid_amount: Math.max(0, due.paid_amount - deduct),
+                                discount: due.discount,
+                            });
+                        }
+                        if (reversals.length > 0) {
+                            await supabase.from('previous_year_dues').upsert(reversals, { onConflict: 'sr_no,academic_year,month' });
+                        }
+                    }
+                }
                 Swal.fire('Deleted!', 'Payment record has been removed.', 'success');
                 loadRecords();
             }
@@ -1119,7 +1347,7 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-muted/30">
-                                    {['Student', 'Fee Item', 'Due', 'Paid', 'Mode', 'Status', 'Actions'].map(h => (
+                                    {['Date', 'Student', 'Fee Item', 'Due', 'Paid', 'Mode', 'Status', 'Actions'].map(h => (
                                         <th key={h} className={`px-4 py-3 font-medium text-muted-foreground ${['Due', 'Paid'].includes(h) ? 'text-right' : h === 'Status' || h === 'Mode' ? 'text-center' : h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
                                     ))}
                                 </tr>
@@ -1127,6 +1355,9 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                             <tbody className="divide-y divide-border">
                                 {filtered.map(p => (
                                     <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                                        <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                                            {new Date(p.paid_on || p.created_at || '').toLocaleDateString('en-GB')}
+                                        </td>
                                         <td className="px-4 py-2.5">
                                             <p className="font-medium">{p.student_name}</p>
                                             <p className="text-xs text-muted-foreground">SR {p.sr_no} · {p.student_class}</p>

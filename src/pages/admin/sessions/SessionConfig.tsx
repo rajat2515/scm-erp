@@ -119,6 +119,21 @@ const SessionConfig: React.FC = () => {
 
     const handleCreateSession = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        try {
+            const { count } = await supabase
+                .from('students')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'active');
+
+            const isConfirmed = window.confirm(`⚠️ You are moving ${count || 0} students to session ${newSessionName}. This cannot be easily undone. Are you sure?`);
+            if (!isConfirmed) return;
+        } catch (err: any) {
+            console.error("Failed to fetch student count:", err);
+            const isConfirmed = window.confirm(`⚠️ You are moving active students to session ${newSessionName}. This cannot be easily undone. Are you sure?`);
+            if (!isConfirmed) return;
+        }
+
         setLoading(true);
         setError(null);
         setSuccess(null);

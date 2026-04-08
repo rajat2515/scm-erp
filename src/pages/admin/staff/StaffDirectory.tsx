@@ -38,7 +38,7 @@ interface TeacherRecord {
 }
 
 const DESIGNATIONS = [
-    'Principal', 'Vice Principal', 'T.G.T.', 'P.R.T.', 'Music Teacher', 'P.T.I.', 'Librarian', 'Clerk', 'Peon', 'Guard', 'Driver', 'Labour', 'Other'
+    'Principal', 'Vice Principal', 'Clerk', 'Peon', 'Guard', 'Driver', 'Labour', 'Other'
 ];
 
 const STAFF_CATEGORIES = [
@@ -324,7 +324,7 @@ export default function StaffDirectory() {
                         const count = cat.key === 'teachers'
                             ? teachers.length
                             : cat.key === 'all'
-                            ? staff.filter(s => getStaffCategory(s.designation) !== 'teachers').length
+                            ? staff.filter(s => getStaffCategory(s.designation) !== 'teachers').length + teachers.length
                             : staff.filter(s => getStaffCategory(s.designation) === cat.key).length;
                         return (
                             <button
@@ -389,6 +389,7 @@ export default function StaffDirectory() {
                     <Loader2 className="w-8 h-8 animate-spin text-primary/50" />
                 </div>
             ) : isTeachersTab ? (
+                /* ── Teachers-only tab ── */
                 filteredTeachers.length === 0 ? (
                     <div className="text-center py-20 bg-card border border-border rounded-3xl">
                         <BookOpen className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
@@ -412,35 +413,104 @@ export default function StaffDirectory() {
                                         </div>
                                     </div>
                                     <div className="flex opacity-0 group-hover:opacity-100 transition-opacity gap-1">
-                                        <button onClick={() => setSelectedTeacher(t)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="View">
-                                            <Eye className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={() => { setEditingTeacher(t); setTeacherModalOpen(true); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit">
-                                            <Pencil className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={() => handleDeleteTeacher(t.id, t.teacher_name)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        <button onClick={() => setSelectedTeacher(t)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="View"><Eye className="w-4 h-4" /></button>
+                                        <button onClick={() => { setEditingTeacher(t); setTeacherModalOpen(true); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                                        <button onClick={() => handleDeleteTeacher(t.id, t.teacher_name)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
                                     </div>
                                 </div>
                                 <div className="space-y-1.5 mt-auto">
                                     {t.main_subject_taught && (
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <BookOpen className="w-3.5 h-3.5" />
-                                            <span className="truncate">{t.main_subject_taught}</span>
-                                        </div>
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground"><BookOpen className="w-3.5 h-3.5" /><span className="truncate">{t.main_subject_taught}</span></div>
                                     )}
                                     {t.class_teacher && (
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <Users className="w-3.5 h-3.5" />
-                                            <span className="truncate">Class Teacher: {t.class_teacher}</span>
-                                        </div>
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Users className="w-3.5 h-3.5" /><span className="truncate">Class Teacher: {t.class_teacher}</span></div>
                                     )}
                                 </div>
                                 <div className="mt-4 pt-4 border-t border-border flex justify-between items-center">
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 font-semibold">
-                                        {t.trained_or_untrained || 'Trained'}
-                                    </span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 font-semibold">{t.trained_or_untrained || 'Trained'}</span>
+                                    <div className="text-right">
+                                        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Pay</span>
+                                        <span className="text-sm font-bold text-foreground">{fmtINR((t.basic_pay || 0) + (t.grade_pay || 0))}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )
+            ) : staffCategory === 'all' ? (
+                /* ── All Staff tab: non-teachers + teachers combined ── */
+                filteredStaff.length === 0 && filteredTeachers.length === 0 ? (
+                    <div className="text-center py-20 bg-card border border-border rounded-3xl">
+                        <UserCircle2 className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
+                        <p className="text-muted-foreground">No staff members found.</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {/* Non-teacher staff cards */}
+                        {filteredStaff.map((member) => (
+                            <div key={`sp-${member.id}`} className="bg-card border border-border rounded-2xl p-5 hover:border-primary/30 hover:shadow-lg transition-all group flex flex-col">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 rounded-full gradient-primary flex items-center justify-center text-white font-black text-lg shadow-md flex-shrink-0">
+                                            {getInitials(member.name)}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-foreground leading-tight">{member.name}</h3>
+                                            <p className="text-xs text-primary font-medium mt-0.5">{member.designation}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex opacity-0 group-hover:opacity-100 transition-opacity gap-1">
+                                        <button onClick={() => setSelectedStaff(member)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="View Details"><Eye className="w-4 h-4" /></button>
+                                        <button onClick={() => openEditModal(member)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                                        <button onClick={() => handleDelete(member.id, member.name)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 mt-auto">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <GraduationCap className="w-4 h-4" />
+                                        <span className="truncate">{member.qualification || 'No qual. listed'}</span>
+                                        {member.trained_status && (
+                                            <span className={`text-[10px] items-center flex rounded-full px-2 py-0.5 border ${member.trained_status === 'Trained' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{member.trained_status}</span>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-border flex justify-end items-center">
+                                    <div className="text-right">
+                                        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Pay</span>
+                                        <span className="text-sm font-bold text-foreground">{fmtINR((member.basic_pay || 0) + (member.grade_pay || 0))}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        {/* Teacher cards in All tab */}
+                        {filteredTeachers.map((t) => (
+                            <div key={`tr-${t.id}`} className="bg-card border border-border rounded-2xl p-5 hover:border-indigo-300 hover:shadow-lg transition-all group flex flex-col">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-black text-lg shadow-md flex-shrink-0">
+                                            {getInitials(t.teacher_name)}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-foreground leading-tight">{t.teacher_name}</h3>
+                                            <p className="text-xs text-indigo-600 font-medium mt-0.5">{t.designation || 'Teacher'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex opacity-0 group-hover:opacity-100 transition-opacity gap-1">
+                                        <button onClick={() => setSelectedTeacher(t)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="View"><Eye className="w-4 h-4" /></button>
+                                        <button onClick={() => { setEditingTeacher(t); setTeacherModalOpen(true); }} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                                        <button onClick={() => handleDeleteTeacher(t.id, t.teacher_name)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5 mt-auto">
+                                    {t.main_subject_taught && (
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground"><BookOpen className="w-3.5 h-3.5" /><span className="truncate">{t.main_subject_taught}</span></div>
+                                    )}
+                                    {t.class_teacher && (
+                                        <div className="flex items-center gap-2 text-sm text-muted-foreground"><Users className="w-3.5 h-3.5" /><span className="truncate">Class Teacher: {t.class_teacher}</span></div>
+                                    )}
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-border flex justify-between items-center">
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100 font-semibold">{t.trained_or_untrained || 'Trained'}</span>
                                     <div className="text-right">
                                         <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider block">Pay</span>
                                         <span className="text-sm font-bold text-foreground">{fmtINR((t.basic_pay || 0) + (t.grade_pay || 0))}</span>
@@ -451,6 +521,7 @@ export default function StaffDirectory() {
                     </div>
                 )
             ) : filteredStaff.length === 0 ? (
+                /* ── Other category tabs (academic, peon_guard, etc.) ── */
                 <div className="text-center py-20 bg-card border border-border rounded-3xl">
                     <UserCircle2 className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
                     <p className="text-muted-foreground">No staff members found.</p>
@@ -470,15 +541,9 @@ export default function StaffDirectory() {
                                     </div>
                                 </div>
                                 <div className="flex opacity-0 group-hover:opacity-100 transition-opacity gap-1">
-                                    <button onClick={() => setSelectedStaff(member)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="View Details">
-                                        <Eye className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => openEditModal(member)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit">
-                                        <Pencil className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => handleDelete(member.id, member.name)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete">
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <button onClick={() => setSelectedStaff(member)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="View Details"><Eye className="w-4 h-4" /></button>
+                                    <button onClick={() => openEditModal(member)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => handleDelete(member.id, member.name)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>
                                 </div>
                             </div>
                             <div className="space-y-2 mt-auto">
@@ -486,9 +551,7 @@ export default function StaffDirectory() {
                                     <GraduationCap className="w-4 h-4" />
                                     <span className="truncate">{member.qualification || 'No qual. listed'}</span>
                                     {member.trained_status && (
-                                        <span className={`text-[10px] items-center flex rounded-full px-2 py-0.5 border ${member.trained_status === 'Trained' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                            {member.trained_status}
-                                        </span>
+                                        <span className={`text-[10px] items-center flex rounded-full px-2 py-0.5 border ${member.trained_status === 'Trained' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{member.trained_status}</span>
                                     )}
                                 </div>
                             </div>
@@ -753,7 +816,7 @@ export default function StaffDirectory() {
 
 function StaffModal({ editing, onClose, onSaved }: { editing: StaffProfile | null, onClose: () => void, onSaved: () => void }) {
     const defaultForm = React.useMemo(() => ({
-        name: '', fathers_spouse_name: '', dob: '', qualification: '', designation: 'T.G.T.', appointment_date: new Date().toISOString().split('T')[0], teaching_subject: '', trained_status: 'Trained' as 'Trained'|'Untrained', basic_pay: 9300, grade_pay: 4200, status: 'active' as 'active'|'inactive',
+        name: '', fathers_spouse_name: '', dob: '', qualification: '', designation: 'Clerk', appointment_date: new Date().toISOString().split('T')[0], teaching_subject: '', trained_status: 'Trained' as 'Trained'|'Untrained', basic_pay: 9300, grade_pay: 4200, status: 'active' as 'active'|'inactive',
         phone: '', address: '', aadhar_no: '', emergency_contact: ''
     }), []);
 

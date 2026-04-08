@@ -402,6 +402,7 @@ const TransportFeeTab: React.FC = () => {
     const [splitCash, setSplitCash] = useState('');
     const [splitOnline, setSplitOnline] = useState('');
     const [splitCheque, setSplitCheque] = useState('');
+    const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
 
     /* Save state */
     const [saving, setSaving] = useState(false);
@@ -566,8 +567,6 @@ const TransportFeeTab: React.FC = () => {
 
         setSaving(true);
         setSaveMsg(null);
-
-        const paymentDate = new Date().toISOString().split('T')[0];
 
         const row = {
             sr_no: student.sr_no,
@@ -1026,6 +1025,16 @@ const TransportFeeTab: React.FC = () => {
                                         <span className="font-bold text-base">Grand Total</span>
                                         <span className="font-black text-lg text-primary">{fmtINR(grandTotal)}</span>
                                     </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-medium text-muted-foreground mb-2 block mt-4">Payment Date</label>
+                                    <input 
+                                        type="date" 
+                                        value={paymentDate} 
+                                        onChange={e => setPaymentDate(e.target.value)} 
+                                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 mb-2"
+                                    />
                                 </div>
 
                                 {/* Payment Mode */}

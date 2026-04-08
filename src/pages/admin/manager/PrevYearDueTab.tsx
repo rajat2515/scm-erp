@@ -98,6 +98,20 @@ const PayRowModal: React.FC<PayModalProps> = ({ row, onClose, onSaved }) => {
         };
         const { error } = await supabase.from('previous_year_dues')
             .upsert(payload, { onConflict: 'sr_no,academic_year,month' });
+            
+        if (!error && amt > 0) {
+            // Also insert a ledger payment record to properly link the receipt
+            await supabase.from('fee_payments').insert({
+                sr_no: row.sr_no,
+                month: `Previous Dues - ${row.label}`,
+                due_amount: amt,
+                paid_amount: amt,
+                discount: 0,
+                paid_on: payload.paid_on,
+                mode,
+            });
+        }
+        
         setSaving(false);
         if (error) { setErr(error.message); return; }
         onSaved();
@@ -520,9 +534,25 @@ const StudentDetail: React.FC<StudentDetailProps> = ({ student, onBack }) => {
 
         if (result.isConfirmed) {
             if (due.id) {
-                await supabase.from('previous_year_dues').delete().eq('id', due.id);
+                const { error } = await supabase.from('previous_year_dues').delete().eq('id', due.id);
+                if (error) {
+                    Swal.fire('Error!', 'Failed to delete: ' + error.message, 'error');
+                    return;
+                }
+
+                // If the due was paid, safely remove *only* the specific receipt created by PayRowModal
+                if (due.paid_amount > 0) {
+                    const allMonths = getYearMonths(due.academic_year);
+                    const found = allMonths.find(m => m.key === due.month);
+                    const label = found ? found.label : due.month;
+                    await supabase
+                        .from('fee_payments')
+                        .delete()
+                        .eq('sr_no', due.sr_no)
+                        .eq('month', `Previous Dues - ${label}`);
+                }
             }
-            loadDues();
+            await loadDues();
             Swal.fire('Deleted!', 'Due entry has been removed.', 'success');
         }
     };
