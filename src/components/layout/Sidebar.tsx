@@ -20,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
     // Admin
     { label: 'Dashboard', icon: LayoutDashboard, path: '/admin', roles: ['admin'] },
     { label: 'Students', icon: Users, path: '/admin/students', roles: ['admin'] },
+    { label: 'Student Attendance', icon: CalendarCheck, path: '/admin/students/attendance', roles: ['admin'] },
     { label: 'Staff Directory', icon: UserCheck, path: '/admin/staff', roles: ['admin'] },
     { label: 'Staff Attendance', icon: CalendarCheck, path: '/admin/staff-attendance', roles: ['admin'] },
     { label: 'Gate Pass', icon: FileBadge, path: '/admin/gate-pass', roles: ['admin'] },

@@ -12,6 +12,7 @@ const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'));
 const StudentDirectory = lazy(() => import('@/pages/admin/students/StudentDirectory'));
 const StudentRegistration = lazy(() => import('@/pages/admin/students/StudentRegistration'));
 const TransferCertificate = lazy(() => import('@/pages/admin/students/TransferCertificate'));
+const StudentAttendance = lazy(() => import('@/pages/admin/students/StudentAttendance'));
 const StaffDirectory = lazy(() => import('@/pages/admin/staff/StaffDirectory'));
 const StaffAttendance = lazy(() => import('@/pages/admin/staff/StaffAttendance'));
 const TeacherRegistration = lazy(() => import('@/pages/admin/staff/TeacherRegistration'));
@@ -48,6 +49,7 @@ const AppRouter: React.FC = () => (
                     <Route path="/admin/students" element={<ProtectedRoute allowedRoles={['admin']}><StudentDirectory /></ProtectedRoute>} />
                     <Route path="/admin/students/register" element={<ProtectedRoute allowedRoles={['admin']}><StudentRegistration /></ProtectedRoute>} />
                     <Route path="/admin/students/tc" element={<ProtectedRoute allowedRoles={['admin']}><TransferCertificate /></ProtectedRoute>} />
+                    <Route path="/admin/students/attendance" element={<ProtectedRoute allowedRoles={['admin']}><StudentAttendance /></ProtectedRoute>} />
                     <Route path="/admin/staff" element={<ProtectedRoute allowedRoles={['admin']}><StaffDirectory /></ProtectedRoute>} />
                     <Route path="/admin/staff/register-teacher" element={<ProtectedRoute allowedRoles={['admin']}><TeacherRegistration /></ProtectedRoute>} />
                     <Route path="/admin/staff-attendance" element={<ProtectedRoute allowedRoles={['admin']}><StaffAttendance /></ProtectedRoute>} />
