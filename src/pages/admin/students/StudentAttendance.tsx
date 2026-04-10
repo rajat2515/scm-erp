@@ -34,8 +34,21 @@ const CLASS_LIST = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const pct = (p: number, t: number) => (t === 0 ? 0 : Math.round((p / t) * 100));
-const dateStr = (d: Date) => d.toISOString().split('T')[0];
+// Build 'YYYY-MM-DD' directly — never use new Date(y,m,d).toISOString() in IST
+// because local midnight converts to the previous UTC day.
+const isoDate = (y: number, m: number, d: number): string =>
+    `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const todayIso = (): string => {
+    const n = new Date();
+    return isoDate(n.getFullYear(), n.getMonth(), n.getDate());
+};
 const getMonthName = (m: number) => new Date(2000, m).toLocaleString('default', { month: 'long' });
+const daysInMonth = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+// Day-of-week for a YYYY-MM-DD string — uses noon UTC to avoid any DST edge
+const dowOf = (ds: string): number => {
+    const [y, m, d] = ds.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay();
+};
 
 const PctBadge: React.FC<{ value: number }> = ({ value }) => {
     const color = value >= 85 ? 'bg-emerald-100 text-emerald-700'
@@ -61,13 +74,15 @@ async function fetchWorkingDaysInRange(from: string, to: string): Promise<Record
         .gte('date', from)
         .lte('date', to);
 
-    // Build a map with defaults (non-Sundays = working)
+    // Build defaults by iterating date strings — timezone-safe
     const map: Record<string, WorkingDayData> = {};
-    const start = new Date(from);
-    const end = new Date(to);
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const ds = dateStr(new Date(d));
-        const isSunday = new Date(d).getDay() === 0;
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    const startUtc = new Date(Date.UTC(fy, fm - 1, fd, 12));
+    const endUtc   = new Date(Date.UTC(ty, tm - 1, td, 12));
+    for (const cur = new Date(startUtc); cur <= endUtc; cur.setUTCDate(cur.getUTCDate() + 1)) {
+        const ds = cur.toISOString().split('T')[0];
+        const isSunday = cur.getUTCDay() === 0;
         map[ds] = { is_working: !isSunday, notes: isSunday ? 'Sunday' : '' };
     }
     // Override with DB values
@@ -82,8 +97,10 @@ const ClasswiseTab: React.FC = () => {
     const [selectedClass, setSelectedClass] = useState(CLASS_LIST[6]);
     const [students, setStudents] = useState<StudentAttRecord[]>([]);
     const [loading, setLoading] = useState(false);
-    const [dateFrom, setDateFrom] = useState(dateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)));
-    const [dateTo, setDateTo] = useState(dateStr(new Date()));
+    const [dateFrom, setDateFrom] = useState(() => {
+        const n = new Date(); return isoDate(n.getFullYear(), n.getMonth(), 1);
+    });
+    const [dateTo, setDateTo] = useState(() => todayIso());
     const [search, setSearch] = useState('');
 
     const fetchData = useCallback(async () => {
@@ -276,8 +293,9 @@ const WorkingDaysTab: React.FC = () => {
         setLoading(true);
         setError('');
         try {
-            const startDate = new Date(year, month, 1).toISOString().split('T')[0];
-            const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+            // Build date strings directly — no Date→toISOString conversion (breaks in IST)
+            const startDate = isoDate(year, month, 1);
+            const endDate   = isoDate(year, month, daysInMonth(year, month));
 
             const { data, error } = await supabase
                 .from('student_working_days')
@@ -287,12 +305,11 @@ const WorkingDaysTab: React.FC = () => {
 
             if (error) throw error;
 
+            const dim = daysInMonth(year, month);
             const daysMap: Record<string, WorkingDayData> = {};
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            for (let i = 1; i <= daysInMonth; i++) {
-                const d = new Date(year, month, i);
-                const ds = d.toISOString().split('T')[0];
-                const isSunday = d.getDay() === 0;
+            for (let i = 1; i <= dim; i++) {
+                const ds = isoDate(year, month, i);
+                const isSunday = dowOf(ds) === 0;
                 daysMap[ds] = { is_working: !isSunday, notes: isSunday ? 'Sunday' : '' };
             }
             (data || []).forEach((wd: any) => {
@@ -349,17 +366,17 @@ const WorkingDaysTab: React.FC = () => {
     const totalWorking = Object.values(workingDays).filter(v => v.is_working).length;
 
     const generateGrid = () => {
-        const firstDay = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        // Use UTC-safe helpers so firstDay and ds are always April 1, not March 31
+        const firstDay = dowOf(isoDate(year, month, 1));
+        const dim = daysInMonth(year, month);
         const grid: React.ReactNode[] = [];
 
         for (let i = 0; i < firstDay; i++) {
             grid.push(<div key={`blank-${i}`} className="p-2" />);
         }
 
-        for (let i = 1; i <= daysInMonth; i++) {
-            const d = new Date(year, month, i);
-            const ds = d.toISOString().split('T')[0];
+        for (let i = 1; i <= dim; i++) {
+            const ds = isoDate(year, month, i);          // always '2026-04-01' etc.
             const data = workingDays[ds] || { is_working: true, notes: '' };
             const isWorking = data.is_working;
 
@@ -466,8 +483,8 @@ const AnalyticsTab: React.FC = () => {
         const fetchAnalytics = async () => {
             setLoading(true);
             try {
-                const fromDate = new Date(year, month, 1).toISOString().split('T')[0];
-                const toDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+                const fromDate = isoDate(year, month, 1);
+                const toDate   = isoDate(year, month, daysInMonth(year, month));
 
                 const workingDayMap = await fetchWorkingDaysInRange(fromDate, toDate);
                 const wdCount = Object.values(workingDayMap).filter(v => v.is_working).length;

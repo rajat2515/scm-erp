@@ -98,17 +98,20 @@ const AttendanceMarking: React.FC = () => {
                     dbMap[row.date] = row.is_working;
                 });
 
-                // Generate all dates in range and apply defaults
+                // Generate all dates using a noon-UTC anchor so getDay() and
+                // toISOString() are 100% timezone-stable regardless of local offset.
                 const result: string[] = [];
-                const start = new Date(threeMonthsAgo);
-                const end = new Date(today);
+                const [fy, fm, fd] = fromDate.split('-').map(Number);
+                const cursor = new Date(Date.UTC(fy, fm - 1, fd, 12, 0, 0)); // noon UTC
+                const [ty, tm, td] = today.split('-').map(Number);
+                const endNoon = new Date(Date.UTC(ty, tm - 1, td, 12, 0, 0));
 
-                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                    const ds = fmt(new Date(d));
-                    const isSunday = new Date(d).getDay() === 0;
-                    // DB value overrides default; default = non-Sundays are working
+                while (cursor <= endNoon) {
+                    const ds = cursor.toISOString().split('T')[0]; // always correct at noon UTC
+                    const isSunday = cursor.getUTCDay() === 0;     // UTC day matches the date
                     const isWorking = ds in dbMap ? dbMap[ds] : !isSunday;
                     if (isWorking) result.push(ds);
+                    cursor.setUTCDate(cursor.getUTCDate() + 1);
                 }
 
                 setWorkingDays(result);
@@ -173,17 +176,12 @@ const AttendanceMarking: React.FC = () => {
         }
     };
 
-    // Handle manual date input — check if it's a working day
+    // Handle manual date input — only allow working days; warn if non-working
     const handleDateInput = (value: string) => {
-        if (!value) return;
-        if (workingDays.includes(value)) {
-            setSelectedDate(value);
-            setIsNonWorkingDay(false);
-        } else {
-            // Show warning but still allow viewing (just flag it)
-            setSelectedDate(value);
-            setIsNonWorkingDay(true);
-        }
+        if (!value || value > today) return; // block future dates
+        setSelectedDate(value);
+        const isWorking = workingDays.includes(value);
+        setIsNonWorkingDay(!isWorking);
     };
 
     // ── Attendance actions ────────────────────────────────────────────────────
@@ -199,6 +197,18 @@ const AttendanceMarking: React.FC = () => {
 
     const handleSave = async () => {
         if (!teacherProfile?.class_teacher) return;
+
+        // Hard block: never save on a non-working day or Sunday
+        const dayOfWeek = new Date(selectedDate + 'T12:00:00Z').getUTCDay();
+        if (dayOfWeek === 0 || isNonWorkingDay) {
+            alert('Cannot save attendance for a Sunday or holiday.');
+            return;
+        }
+        if (selectedDate > today) {
+            alert('Cannot save attendance for a future date.');
+            return;
+        }
+
         setSaving(true);
         try {
             const records = students.map(s => ({
@@ -348,7 +358,7 @@ const AttendanceMarking: React.FC = () => {
                         </div>
                         <button
                             onClick={handleSave}
-                            disabled={saving || students.length === 0 || isFuture}
+                            disabled={saving || students.length === 0 || isFuture || isNonWorkingDay || new Date(selectedDate + 'T12:00:00Z').getUTCDay() === 0}
                             className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-40 shadow-md shadow-indigo-200"
                         >
                             {saving ? <Loader2 className="w-4 h-4 animate-spin" />
