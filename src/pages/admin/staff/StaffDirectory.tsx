@@ -41,6 +41,20 @@ const DESIGNATIONS = [
     'Principal', 'Vice Principal', 'Clerk', 'Peon', 'Guard', 'Driver', 'Labour', 'Other'
 ];
 
+const SCHOOL_CLASSES = [
+    'None', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 
+    'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 
+    'FIVE A', 'FIVE B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT A', 'EIGHT B', 
+    'NINE', 'TEN'
+];
+
+const QUALIFICATIONS = [
+    'B.A/B.ed', 'B.Sc/B.ed', 'M.A/B.ed', 'M.Sc/B.ed', 'B.Com/B.ed', 'M.Com/B.ed',
+    'High School', 'Intermediate', 'B.A.', 'M.A.', 'B.Sc.', 'M.Sc.', 'B.Com.', 
+    'M.Com.', 'B.Ed.', 'M.Ed.', 'D.El.Ed/BTC', 'NTT', 'B.C.A.', 'M.C.A.', 'B.Tech', 
+    'M.Tech', 'B.P.Ed.', 'C.TET/U.P.TET', 'Ph.D.', 'Other'
+];
+
 const STAFF_CATEGORIES = [
     { key: 'all', label: 'All Staff' },
     { key: 'teachers', label: 'Teachers' },
@@ -910,7 +924,11 @@ function StaffModal({ editing, onClose, onSaved }: { editing: StaffProfile | nul
                         </div>
                         <div>
                             <label className={lC}>Qualification</label>
-                            <input value={form.qualification} onChange={e => set('qualification', e.target.value)} className={iC} placeholder="e.g. B.Sc. M.A., B.Ed" />
+                            <select value={form.qualification} onChange={e => set('qualification', e.target.value)} className={iC}>
+                                <option value="">Select Qualification</option>
+                                <option value="Other">Other</option>
+                                {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                            </select>
                         </div>
                         <div className="flex flex-col gap-2">
                             <label className={lC}>Training Status</label>
@@ -1071,7 +1089,10 @@ function TeacherModal({ editing, onClose, onSaved }: { editing: TeacherRecord | 
                         </div>
                         <div>
                             <label className={lC}>Qualification</label>
-                            <input value={form.teacher_qualification} onChange={e => set('teacher_qualification', e.target.value)} className={iC} placeholder="e.g. B.A./B.Ed." />
+                            <select value={form.teacher_qualification} onChange={e => set('teacher_qualification', e.target.value)} className={iC}>
+                                <option value="">Select Qualification</option>
+                                {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                            </select>
                         </div>
                         <div>
                             <label className={lC}>Teaching Subject</label>
@@ -1079,7 +1100,10 @@ function TeacherModal({ editing, onClose, onSaved }: { editing: TeacherRecord | 
                         </div>
                         <div>
                             <label className={lC}>Class Teacher Of</label>
-                            <input value={form.class_teacher} onChange={e => set('class_teacher', e.target.value)} className={iC} placeholder="e.g. Class V-A" />
+                            <select value={form.class_teacher} onChange={e => set('class_teacher', e.target.value === 'None' ? '' : e.target.value)} className={iC}>
+                                <option value="">Select Class</option>
+                                {SCHOOL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
                         </div>
                         <div>
                             <label className={lC}>Appointment Date</label>

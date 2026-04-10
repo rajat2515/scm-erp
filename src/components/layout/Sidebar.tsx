@@ -29,7 +29,11 @@ const NAV_ITEMS: NavItem[] = [
     { label: 'Session Config', icon: Layers, path: '/admin/sessions', roles: ['admin'] },
     // Teacher
     { label: 'My Dashboard', icon: LayoutDashboard, path: '/teacher', roles: ['teacher'] },
+    { label: 'My Classes', icon: BookOpen, path: '/teacher/classes', roles: ['teacher'] },
+    { label: 'Attendance', icon: CalendarCheck, path: '/teacher/attendance', roles: ['teacher'] },
     { label: 'Enter Marks', icon: FileText, path: '/teacher/marks', roles: ['teacher'] },
+    { label: 'Report Cards', icon: FileBadge, path: '/teacher/reports', roles: ['teacher'] },
+    { label: 'Profile', icon: Users, path: '/teacher/profile', roles: ['teacher'] },
     // Student
     { label: 'My Dashboard', icon: LayoutDashboard, path: '/student', roles: ['student'] },
 ];

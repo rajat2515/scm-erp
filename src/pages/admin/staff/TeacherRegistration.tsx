@@ -80,6 +80,13 @@ const CLASSES_LIST = [
     'CLASS VI', 'CLASS VII', 'CLASS VIII', 'CLASS IX', 'CLASS X', 'CLASS XI', 'CLASS XII'
 ];
 
+const QUALIFICATIONS = [
+    'B.A/B.ed', 'B.Sc/B.ed', 'M.A/B.ed', 'M.Sc/B.ed', 'B.Com/B.ed', 'M.Com/B.ed',
+    'High School', 'Intermediate', 'B.A.', 'M.A.', 'B.Sc.', 'M.Sc.', 'B.Com.', 
+    'M.Com.', 'B.Ed.', 'M.Ed.', 'D.El.Ed/BTC', 'NTT', 'B.C.A.', 'M.C.A.', 'B.Tech', 
+    'M.Tech', 'B.P.Ed.', 'C.TET/U.P.TET', 'Ph.D.', 'Other'
+];
+
 export default function TeacherRegistration() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
@@ -365,12 +372,18 @@ export default function TeacherRegistration() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 print-grid">
                         <div className="print-field">
                             <label className={lC}>Teacher Qualification</label>
-                            <input value={form.teacher_qualification} onChange={e=>set('teacher_qualification', e.target.value)} className={iC} placeholder="e.g. B.A./B.Ed." />
+                            <select value={form.teacher_qualification} onChange={e=>set('teacher_qualification', e.target.value)} className={iC}>
+                                <option value="">Select Qualification</option>
+                                {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                            </select>
                             <div className="hidden print:block print-box"></div>
                         </div>
                         <div className="print-field">
                             <label className={lC}>Highest Qualification (Academic)</label>
-                            <input value={form.highest_qualification} onChange={e=>set('highest_qualification', e.target.value)} className={iC} placeholder="e.g. B.A" />
+                            <select value={form.highest_qualification} onChange={e=>set('highest_qualification', e.target.value)} className={iC}>
+                                <option value="">Select Qualification</option>
+                                {QUALIFICATIONS.map(q => <option key={q} value={q}>{q}</option>)}
+                            </select>
                             <div className="hidden print:block print-box"></div>
                         </div>
                         <div className="print-field">

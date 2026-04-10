@@ -20,6 +20,11 @@ const FeeLedger = lazy(() => import('@/pages/admin/manager/FeeLedger'));
 const ReportCards = lazy(() => import('@/pages/admin/manager/ReportCards'));
 const FormsCenter = lazy(() => import('@/pages/admin/FormsCenter'));
 const TeacherDashboard = lazy(() => import('@/pages/teacher/TeacherDashboard'));
+const MarksEntry = lazy(() => import('@/pages/teacher/MarksEntry'));
+const ReportCardBuilder = lazy(() => import('@/pages/teacher/ReportCardBuilder'));
+const Profile = lazy(() => import('@/pages/teacher/Profile'));
+const AttendanceMarking = lazy(() => import('@/pages/teacher/AttendanceMarking'));
+const MyClasses = lazy(() => import('@/pages/teacher/MyClasses'));
 const StudentDashboard = lazy(() => import('@/pages/student/StudentDashboard'));
 const SessionConfig = lazy(() => import('@/pages/admin/sessions/SessionConfig'));
 
@@ -54,7 +59,11 @@ const AppRouter: React.FC = () => (
 
                     {/* Teacher */}
                     <Route path="/teacher" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherDashboard /></ProtectedRoute>} />
-                    <Route path="/teacher/marks" element={<ProtectedRoute allowedRoles={['teacher']}><ReportCards /></ProtectedRoute>} />
+                    <Route path="/teacher/classes" element={<ProtectedRoute allowedRoles={['teacher']}><MyClasses /></ProtectedRoute>} />
+                    <Route path="/teacher/attendance" element={<ProtectedRoute allowedRoles={['teacher']}><AttendanceMarking /></ProtectedRoute>} />
+                    <Route path="/teacher/marks" element={<ProtectedRoute allowedRoles={['teacher']}><MarksEntry /></ProtectedRoute>} />
+                    <Route path="/teacher/reports" element={<ProtectedRoute allowedRoles={['teacher']}><ReportCardBuilder /></ProtectedRoute>} />
+                    <Route path="/teacher/profile" element={<ProtectedRoute allowedRoles={['teacher']}><Profile /></ProtectedRoute>} />
 
                     {/* Student */}
                     <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>} />
