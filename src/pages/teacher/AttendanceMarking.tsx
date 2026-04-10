@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import { supabase } from '@/config/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
-import { Save, UserCheck, UserX, Clock, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+    Save, UserCheck, UserX, Loader2, CheckCircle2, AlertCircle,
+    ChevronLeft, ChevronRight, CalendarDays, AlertTriangle
+} from 'lucide-react';
 
 type AttendanceStatus = 'present' | 'absent' | null;
 
@@ -16,6 +19,11 @@ interface AttendanceMap {
     [studentId: number]: AttendanceStatus;
 }
 
+// ── Utilities ─────────────────────────────────────────────────────────────────
+const fmt = (d: Date) => d.toISOString().split('T')[0];
+const today = fmt(new Date());
+
+// ── Main Component ────────────────────────────────────────────────────────────
 const AttendanceMarking: React.FC = () => {
     const { user, isLoading: authLoading } = useAuth();
     const [teacherProfile, setTeacherProfile] = useState<any>(null);
@@ -24,70 +32,168 @@ const AttendanceMarking: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [savedSuccess, setSavedSuccess] = useState(false);
-    const today = new Date().toISOString().split('T')[0];
 
+    // Date navigation state
+    const [selectedDate, setSelectedDate] = useState(today);
+    const [workingDays, setWorkingDays] = useState<string[]>([]); // sorted list of working day strings
+    const [loadingDates, setLoadingDates] = useState(true);
+    const [isNonWorkingDay, setIsNonWorkingDay] = useState(false);
+
+    // ── Step 1: Load teacher profile & students (once) ────────────────────────
     useEffect(() => {
         if (authLoading) return;
-        const init = async () => {
-            if (!user?.id) return;
+        if (!user?.id) { setLoading(false); return; }
+
+        const initTeacher = async () => {
             try {
-                // Step 1: Get teacher's class
-                const { data: teacher, error: teacherErr } = await supabase
+                const { data: teacher } = await supabase
                     .from('teacher_registrations')
                     .select('*')
                     .eq('user_id', user.id)
                     .single();
 
-                if (teacherErr || !teacher) return;
+                if (!teacher) return;
                 setTeacherProfile(teacher);
 
-                const className = teacher.class_teacher;
-                if (!className) return;
+                if (!teacher.class_teacher) return;
 
-                // Step 2: Fetch students — use correct column names from your schema
-                // students table: sr_no (PK), class (not class_name), roll_no, name
-                const { data: studentList, error: studentErr } = await supabase
+                const { data: studentList } = await supabase
                     .from('students')
                     .select('sr_no, name, roll_no')
-                    .eq('class', className)          // ← your column is 'class'
+                    .eq('class', teacher.class_teacher)
                     .eq('status', 'active')
-                    .order('roll_no', { ascending: true });
+                    .order('name', { ascending: true });
 
-                if (!studentErr && studentList) {
-                    setStudents(studentList);
-
-                    // Check if today's attendance already exists
-                    const { data: existingAttendance } = await supabase
-                        .from('student_attendance')
-                        .select('student_id, status')
-                        .eq('class_name', className)
-                        .eq('attendance_date', today);
-
-                    if (existingAttendance && existingAttendance.length > 0) {
-                        const map: AttendanceMap = {};
-                        existingAttendance.forEach((r: any) => {
-                            map[r.student_id] = r.status;
-                        });
-                        setAttendance(map);
-                    }
-                }
+                if (studentList) setStudents(studentList);
             } catch (err) {
-                console.error('Error loading attendance data:', err);
+                console.error('Error loading teacher data:', err);
             } finally {
                 setLoading(false);
             }
         };
 
-        init();
+        initTeacher();
     }, [user?.id, authLoading]);
 
-    const markStudent = (studentId: number, status: 'present' | 'absent') => {
-        setAttendance(prev => ({ ...prev, [studentId]: status }));
+    // ── Step 2: Load working days for the last 3 months ───────────────────────
+    useEffect(() => {
+        const loadWorkingDays = async () => {
+            setLoadingDates(true);
+            try {
+                // Load working days from 3 months ago to today
+                const threeMonthsAgo = new Date();
+                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                const fromDate = fmt(threeMonthsAgo);
+
+                const { data } = await supabase
+                    .from('student_working_days')
+                    .select('date, is_working')
+                    .gte('date', fromDate)
+                    .lte('date', today)
+                    .order('date', { ascending: true });
+
+                // Build set of dates with explicit DB entries
+                const dbMap: Record<string, boolean> = {};
+                (data || []).forEach((row: any) => {
+                    dbMap[row.date] = row.is_working;
+                });
+
+                // Generate all dates in range and apply defaults
+                const result: string[] = [];
+                const start = new Date(threeMonthsAgo);
+                const end = new Date(today);
+
+                for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                    const ds = fmt(new Date(d));
+                    const isSunday = new Date(d).getDay() === 0;
+                    // DB value overrides default; default = non-Sundays are working
+                    const isWorking = ds in dbMap ? dbMap[ds] : !isSunday;
+                    if (isWorking) result.push(ds);
+                }
+
+                setWorkingDays(result);
+
+                // Check if today is a working day; if not, go to last working day
+                if (result.length > 0) {
+                    if (result.includes(today)) {
+                        setSelectedDate(today);
+                        setIsNonWorkingDay(false);
+                    } else {
+                        // today is a holiday — show the last working day
+                        setSelectedDate(result[result.length - 1]);
+                        setIsNonWorkingDay(false);
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading working days:', e);
+            } finally {
+                setLoadingDates(false);
+            }
+        };
+
+        loadWorkingDays();
+    }, []);
+
+    // ── Step 3: Load attendance for selected date ─────────────────────────────
+    const loadAttendanceForDate = useCallback(async (date: string) => {
+        if (!teacherProfile?.class_teacher) return;
+        try {
+            const { data } = await supabase
+                .from('student_attendance')
+                .select('student_id, status')
+                .eq('class_name', teacherProfile.class_teacher)
+                .eq('attendance_date', date);
+
+            const map: AttendanceMap = {};
+            (data || []).forEach((r: any) => { map[r.student_id] = r.status; });
+            setAttendance(map);
+        } catch (e) {
+            console.error('Error loading attendance:', e);
+        }
+    }, [teacherProfile?.class_teacher]);
+
+    useEffect(() => {
+        if (teacherProfile?.class_teacher && selectedDate) {
+            loadAttendanceForDate(selectedDate);
+        }
+    }, [selectedDate, teacherProfile?.class_teacher, loadAttendanceForDate]);
+
+    // ── Navigation: prev / next working day ───────────────────────────────────
+    const currentIndex = workingDays.indexOf(selectedDate);
+
+    const goPrev = () => {
+        if (currentIndex > 0) {
+            setSelectedDate(workingDays[currentIndex - 1]);
+        }
+    };
+
+    const goNext = () => {
+        if (currentIndex < workingDays.length - 1) {
+            setSelectedDate(workingDays[currentIndex + 1]);
+        }
+    };
+
+    // Handle manual date input — check if it's a working day
+    const handleDateInput = (value: string) => {
+        if (!value) return;
+        if (workingDays.includes(value)) {
+            setSelectedDate(value);
+            setIsNonWorkingDay(false);
+        } else {
+            // Show warning but still allow viewing (just flag it)
+            setSelectedDate(value);
+            setIsNonWorkingDay(true);
+        }
+    };
+
+    // ── Attendance actions ────────────────────────────────────────────────────
+    const markStudent = (id: number, status: 'present' | 'absent') => {
+        setAttendance(prev => ({ ...prev, [id]: status }));
     };
 
     const markAll = (status: 'present' | 'absent') => {
         const map: AttendanceMap = {};
-        students.forEach(s => { map[s.sr_no] = status; }); // use sr_no as key
+        students.forEach(s => { map[s.sr_no] = status; });
         setAttendance(map);
     };
 
@@ -96,9 +202,9 @@ const AttendanceMarking: React.FC = () => {
         setSaving(true);
         try {
             const records = students.map(s => ({
-                student_id: s.sr_no,      // use sr_no as the student reference
+                student_id: s.sr_no,
                 class_name: teacherProfile.class_teacher,
-                attendance_date: today,
+                attendance_date: selectedDate,
                 status: attendance[s.sr_no] || 'absent',
                 marked_by: user?.id,
             }));
@@ -111,41 +217,104 @@ const AttendanceMarking: React.FC = () => {
             setSavedSuccess(true);
             setTimeout(() => setSavedSuccess(false), 3000);
         } catch (err) {
-            console.error('Error saving attendance:', err);
-            alert('Failed to save attendance. Please try again.');
+            console.error('Error saving:', err);
+            alert('Failed to save attendance.');
         } finally {
             setSaving(false);
         }
     };
 
+    // ── Derived counts ────────────────────────────────────────────────────────
     const presentCount = Object.values(attendance).filter(v => v === 'present').length;
-    const absentCount  = Object.values(attendance).filter(v => v === 'absent').length;
+    const absentCount = Object.values(attendance).filter(v => v === 'absent').length;
     const unmarkedCount = students.length - presentCount - absentCount;
 
+    const isToday = selectedDate === today;
+    const isFuture = selectedDate > today;
+    const selectedDateFormatted = new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', {
+        weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
+    });
+
     return (
-        <AppShell 
-            title="Class Attendance" 
+        <AppShell
+            title="Class Attendance"
             subtitle="Mark daily presence for your assigned students"
         >
             <div className="space-y-6 animate-in fade-in duration-500">
-                {/* Header bar */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-800">
-                            Daily Record — <span className="text-indigo-600 uppercase">{teacherProfile?.class_teacher || '...'}</span>
-                        </h1>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <div className="bg-white p-2 rounded-xl border border-slate-200 flex items-center gap-2 px-4 shadow-sm">
-                            <Clock className="w-4 h-4 text-indigo-500" />
-                            <span className="text-sm font-bold text-slate-700">
-                                {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
-                            </span>
+                {/* ── Date Navigator ── */}
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-col sm:flex-row items-center gap-4">
+                    {/* Prev button */}
+                    <button
+                        onClick={goPrev}
+                        disabled={currentIndex <= 0 || loadingDates}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                        <ChevronLeft className="w-4 h-4" />
+                        Previous Day
+                    </button>
+
+                    {/* Date display + input */}
+                    <div className="flex-1 flex flex-col items-center gap-1">
+                        <div className="flex items-center gap-2">
+                            <CalendarDays className="w-4 h-4 text-indigo-500" />
+                            <span className="text-base font-bold text-slate-800">{selectedDateFormatted}</span>
+                            {isToday && (
+                                <span className="text-[10px] font-bold uppercase bg-indigo-600 text-white px-2.5 py-0.5 rounded-full ml-1">Today</span>
+                            )}
+                        </div>
+                        {/* Manual date picker */}
+                        <div className="flex items-center gap-2 mt-1">
+                            <label className="text-xs text-slate-400 font-medium">Jump to:</label>
+                            <input
+                                type="date"
+                                max={today}
+                                value={selectedDate}
+                                onChange={e => handleDateInput(e.target.value)}
+                                className="text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
                         </div>
                     </div>
+
+                    {/* Next button */}
+                    <button
+                        onClick={goNext}
+                        disabled={currentIndex >= workingDays.length - 1 || loadingDates}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                        Next Day
+                        <ChevronRight className="w-4 h-4" />
+                    </button>
                 </div>
 
-                {/* Stats row */}
+                {/* ── Non-working day warning ── */}
+                {isNonWorkingDay && (
+                    <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                        <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                        <div>
+                            <p className="text-sm font-bold text-amber-800">This date is not a working day</p>
+                            <p className="text-xs text-amber-600 mt-0.5">
+                                You can still mark attendance, but this date is marked as a holiday in the school calendar.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Class header ── */}
+                <div className="flex items-center justify-between">
+                    <h1 className="text-2xl font-bold text-slate-800">
+                        {teacherProfile?.class_teacher
+                            ? <><span className="text-slate-500 font-normal">Class — </span><span className="text-indigo-600 uppercase">{teacherProfile.class_teacher}</span></>
+                            : <span className="text-slate-400">Loading...</span>
+                        }
+                    </h1>
+                    {loadingDates && (
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading calendar...
+                        </div>
+                    )}
+                </div>
+
+                {/* ── Stats row ── */}
                 {!loading && students.length > 0 && (
                     <div className="grid grid-cols-3 gap-4">
                         <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-center">
@@ -163,48 +332,40 @@ const AttendanceMarking: React.FC = () => {
                     </div>
                 )}
 
-                {/* Main table */}
+                {/* ── Attendance table ── */}
                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    {/* Table header bar */}
+                    {/* Toolbar */}
                     <div className="p-4 px-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
                         <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => markAll('present')}
-                                className="text-xs font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-all"
-                            >
+                            <button onClick={() => markAll('present')}
+                                className="text-xs font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-all">
                                 ✓ Mark All Present
                             </button>
-                            <button
-                                onClick={() => markAll('absent')}
-                                className="text-xs font-bold text-rose-600 border border-rose-200 bg-rose-50 px-3 py-1.5 rounded-lg hover:bg-rose-100 transition-all"
-                            >
+                            <button onClick={() => markAll('absent')}
+                                className="text-xs font-bold text-rose-600 border border-rose-200 bg-rose-50 px-3 py-1.5 rounded-lg hover:bg-rose-100 transition-all">
                                 ✗ Mark All Absent
                             </button>
                         </div>
                         <button
                             onClick={handleSave}
-                            disabled={saving || students.length === 0}
-                            className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-50 shadow-md shadow-indigo-200"
+                            disabled={saving || students.length === 0 || isFuture}
+                            className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-40 shadow-md shadow-indigo-200"
                         >
-                            {saving ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : savedSuccess ? (
-                                <CheckCircle2 className="w-4 h-4" />
-                            ) : (
-                                <Save className="w-4 h-4" />
-                            )}
+                            {saving ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : savedSuccess ? <CheckCircle2 className="w-4 h-4" />
+                                    : <Save className="w-4 h-4" />}
                             {saving ? 'Saving...' : savedSuccess ? 'Saved!' : 'Save Attendance'}
                         </button>
                     </div>
 
                     {/* Column headers */}
                     <div className="grid grid-cols-12 gap-4 p-3 px-6 text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50/30 border-b border-slate-50">
-                        <div className="col-span-1">Roll</div>
+                        <div className="col-span-1">#</div>
                         <div className="col-span-7">Student Name</div>
                         <div className="col-span-4 text-right">Status</div>
                     </div>
 
-                    {/* Student rows */}
+                    {/* Rows */}
                     {loading ? (
                         <div className="flex items-center justify-center py-16">
                             <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
@@ -213,7 +374,7 @@ const AttendanceMarking: React.FC = () => {
                         <div className="p-12 text-center">
                             <AlertCircle className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                             <p className="text-slate-500 font-medium">No students found in this class.</p>
-                            <p className="text-slate-400 text-sm mt-1">Make sure the class name in your profile matches the student records.</p>
+                            <p className="text-slate-400 text-sm mt-1">Make sure the class name in your profile matches student records.</p>
                         </div>
                     ) : (
                         <div className="divide-y divide-slate-50">
@@ -238,7 +399,7 @@ const AttendanceMarking: React.FC = () => {
                                                 {student.name.charAt(0).toUpperCase()}
                                             </div>
                                             <div>
-                                                <p className="text-sm font-bold text-slate-800">{student.name}</p>
+                                                <p className="text-sm font-bold text-slate-800 capitalize">{student.name}</p>
                                                 <p className="text-xs text-slate-400">Roll: {student.roll_no || '—'}</p>
                                             </div>
                                         </div>
