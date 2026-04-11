@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import AppShell from '@/components/layout/AppShell';
 import {
     Users, UserCheck, FileText, BookOpen,
-    ArrowUpRight, Clock, AlertCircle, Download
+    ArrowUpRight, Clock, AlertCircle, Download, IndianRupee
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useReactToPrint } from 'react-to-print';
@@ -223,6 +223,7 @@ const AdminDashboard: React.FC = () => {
                         { label: 'Student Form', icon: Download, onClick: () => handlePrintStudentReg(), gradient: 'gradient-primary', sub: 'Print A4' },
                         { label: 'Staff Form', icon: Download, onClick: () => handlePrintStaffReg(), gradient: 'gradient-rose', sub: 'Print A4' },
                         { label: 'Gate Pass', icon: AlertCircle, onClick: () => navigate('/admin/gate-pass'), gradient: 'gradient-emerald' },
+                        { label: 'School Income', icon: IndianRupee, onClick: () => navigate('/admin/income'), gradient: 'gradient-primary' },
                         { label: 'Reports', icon: FileText, onClick: () => navigate('/admin/reports'), gradient: 'gradient-amber' },
                     ].map((action) => (
                         <button

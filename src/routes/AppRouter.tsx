@@ -20,6 +20,7 @@ const GatePass = lazy(() => import('@/pages/admin/manager/GatePass'));
 const FeeLedger = lazy(() => import('@/pages/admin/manager/FeeLedger'));
 const ReportCards = lazy(() => import('@/pages/admin/manager/ReportCards'));
 const FormsCenter = lazy(() => import('@/pages/admin/FormsCenter'));
+const SchoolIncome = lazy(() => import('@/pages/admin/manager/SchoolIncome'));
 const TeacherDashboard = lazy(() => import('@/pages/teacher/TeacherDashboard'));
 const MarksEntry = lazy(() => import('@/pages/teacher/MarksEntry'));
 const ReportCardBuilder = lazy(() => import('@/pages/teacher/ReportCardBuilder'));
@@ -57,6 +58,7 @@ const AppRouter: React.FC = () => (
                     <Route path="/admin/fees" element={<ProtectedRoute allowedRoles={['admin']}><FeeLedger /></ProtectedRoute>} />
                     <Route path="/admin/reports" element={<ProtectedRoute allowedRoles={['admin', 'teacher']}><ReportCards /></ProtectedRoute>} />
                     <Route path="/admin/forms" element={<ProtectedRoute allowedRoles={['admin']}><FormsCenter /></ProtectedRoute>} />
+                    <Route path="/admin/income" element={<ProtectedRoute allowedRoles={['admin']}><SchoolIncome /></ProtectedRoute>} />
                     <Route path="/admin/sessions" element={<ProtectedRoute allowedRoles={['admin']}><SessionConfig /></ProtectedRoute>} />
 
                     {/* Teacher */}

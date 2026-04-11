@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Users, UserCheck, DollarSign, FileText,
-    GraduationCap, LogOut, ChevronLeft, ChevronRight,
+    GraduationCap, LogOut, ChevronLeft, ChevronRight, IndianRupee,
     BookOpen, BarChart3, CalendarCheck, FileBadge, ClipboardList, Layers
 } from 'lucide-react';
 import { supabase } from '@/config/supabaseClient';
@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
     { label: 'Staff Attendance', icon: CalendarCheck, path: '/admin/staff-attendance', roles: ['admin'] },
     { label: 'Gate Pass', icon: FileBadge, path: '/admin/gate-pass', roles: ['admin'] },
     { label: 'Fee Management', icon: DollarSign, path: '/admin/fees', roles: ['admin'] },
+    { label: 'School Income', icon: IndianRupee, path: '/admin/income', roles: ['admin'] },
     { label: 'Report Cards', icon: FileText, path: '/admin/reports', roles: ['admin'] },
     { label: 'Forms Center', icon: ClipboardList, path: '/admin/forms', roles: ['admin'] },
     { label: 'Session Config', icon: Layers, path: '/admin/sessions', roles: ['admin'] },
