@@ -29,6 +29,7 @@ const AttendanceMarking = lazy(() => import('@/pages/teacher/AttendanceMarking')
 const MyClasses = lazy(() => import('@/pages/teacher/MyClasses'));
 const StudentDashboard = lazy(() => import('@/pages/student/StudentDashboard'));
 const SessionConfig = lazy(() => import('@/pages/admin/sessions/SessionConfig'));
+const TimetableManager = lazy(() => import('@/pages/admin/manager/TimetableManager'));
 
 const PageLoader = () => (
     <div className="min-h-screen flex items-center justify-center">
@@ -60,6 +61,7 @@ const AppRouter: React.FC = () => (
                     <Route path="/admin/forms" element={<ProtectedRoute allowedRoles={['admin']}><FormsCenter /></ProtectedRoute>} />
                     <Route path="/admin/income" element={<ProtectedRoute allowedRoles={['admin']}><SchoolIncome /></ProtectedRoute>} />
                     <Route path="/admin/sessions" element={<ProtectedRoute allowedRoles={['admin']}><SessionConfig /></ProtectedRoute>} />
+                    <Route path="/admin/timetable" element={<ProtectedRoute allowedRoles={['admin']}><TimetableManager /></ProtectedRoute>} />
 
                     {/* Teacher */}
                     <Route path="/teacher" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherDashboard /></ProtectedRoute>} />

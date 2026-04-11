@@ -2,30 +2,31 @@ import React, { useState, useEffect } from 'react';
 import AppShell from '@/components/layout/AppShell';
 import { 
     Users, Clock, UserCheck, UserX, 
-    Calendar,
+    Calendar, AlertCircle,
     Loader2
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/config/supabaseClient';
 
-// Mock Schedule (To be replaced with Supabase fetch logic later)
-const MOCK_SCHEDULE = [
-    { id: '1', period: '1st Period', time: '08:00 AM - 08:35 AM', subject: 'Mathematics', type: 'class', current: false },
-    { id: '2', period: '2nd Period', time: '08:35 AM - 09:10 AM', subject: 'Science (Physics)', type: 'class', current: true },
-    { id: '3', period: '3rd Period', time: '09:10 AM - 09:45 AM', subject: 'English', type: 'class', current: false },
-    { id: '4', period: '4th Period', time: '09:45 AM - 10:20 AM', subject: 'Free / Prep', type: 'free', current: false },
-    { id: 'r', period: 'Recess', time: '10:20 AM - 10:50 AM', subject: 'Break Time', type: 'recess', current: false },
-    { id: '5', period: '5th Period', time: '10:50 AM - 11:25 AM', subject: 'Class 9 - C (Math)', type: 'class', current: false },
-    { id: '6', period: '6th Period', time: '11:25 AM - 12:00 PM', subject: 'Class 8 - A (Science)', type: 'class', current: false },
-    { id: '7', period: '7th Period', time: '12:00 PM - 12:35 PM', subject: 'Free / Prep', type: 'free', current: false },
-    { id: '8', period: '8th Period', time: '12:35 PM - 01:10 PM', subject: 'Extra Curricular', type: 'class', current: false }
-];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+interface ScheduleItem {
+    id: string;
+    period: string;
+    time: string;
+    subject: string;
+    className?: string;
+    type: 'class' | 'free' | 'recess' | 'assembly' | 'substitution';
+    current: boolean;
+}
 
 const TeacherDashboard: React.FC = () => {
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [teacherData, setTeacherData] = useState<any>(null);
     const [attendanceStats, setAttendanceStats] = useState({ workingDays: 0, present: 0, absent: 0 });
+    const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
+    const [isAbsentToday, setIsAbsentToday] = useState(false);
 
     useEffect(() => {
         const fetchDashboardData = async () => {
@@ -64,7 +65,7 @@ const TeacherDashboard: React.FC = () => {
                         const daysInMonth = new Date(year, month + 1, 0).getDate();
                         for (let i = 1; i <= daysInMonth; i++) {
                             const dateObj = new Date(year, month, i);
-                            wDaysMap[dateObj.toISOString().split('T')[0]] = dateObj.getDay() !== 0; // Default to all except Sunday
+                            wDaysMap[dateObj.toISOString().split('T')[0]] = dateObj.getDay() !== 0;
                         }
                     }
 
@@ -92,8 +93,6 @@ const TeacherDashboard: React.FC = () => {
                         
                         if (wDaysMap[dateStr]) {
                             working++;
-                            
-                            // Only calculate present/absent stats up to today
                             if (dateStr <= todayStr) {
                                 const status = recordMap[dateStr];
                                 if (status === 'Present' || status === 'Half-day') {
@@ -106,6 +105,114 @@ const TeacherDashboard: React.FC = () => {
                     }
 
                     setAttendanceStats({ workingDays: working, present, absent });
+
+                    // Check if teacher is absent today
+                    const todayStatus = recordMap[todayStr];
+                    if (todayStatus === 'Absent' || todayStatus === 'Leave') {
+                        setIsAbsentToday(true);
+                    }
+
+                    // ─── Fetch Today's Schedule from DB ───────────────────────
+                    const today = new Date();
+                    const jsDay = today.getDay();
+                    const dayOfWeek = jsDay === 0 ? 7 : jsDay;
+
+                    const { data: timingsData } = await supabase
+                        .from('period_timings')
+                        .select('*')
+                        .order('period_number');
+
+                    const { data: slotsData } = await supabase
+                        .from('timetable_slots')
+                        .select('*')
+                        .eq('teacher_id', tData.id)
+                        .eq('day_of_week', dayOfWeek);
+
+                    const todayDateStr = today.toISOString().split('T')[0];
+                    const { data: subsData } = await supabase
+                        .from('substitute_assignments')
+                        .select('*, timetable_slots(*)')
+                        .eq('date', todayDateStr)
+                        .eq('substitute_teacher_id', tData.id);
+
+                    const timings = (timingsData || []) as any[];
+                    const ownSlots = (slotsData || []) as any[];
+                    const substitutions = (subsData || []) as any[];
+
+                    const now = new Date();
+                    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+                    const builtSchedule: ScheduleItem[] = [];
+
+                    const sortedTimings = [...timings].sort((a, b) => {
+                        return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+                    });
+
+                    sortedTimings.forEach(timing => {
+                        const startMins = timeToMinutes(timing.start_time);
+                        const endMins = timeToMinutes(timing.end_time);
+                        const isCurrent = currentMinutes >= startMins && currentMinutes < endMins;
+
+                        if (timing.type === 'recess') {
+                            builtSchedule.push({
+                                id: `recess-${timing.id}`,
+                                period: timing.label,
+                                time: `${formatTimeTo12(timing.start_time)} - ${formatTimeTo12(timing.end_time)}`,
+                                subject: 'Break Time',
+                                type: 'recess',
+                                current: isCurrent
+                            });
+                            return;
+                        }
+
+                        if (timing.type === 'assembly') {
+                            builtSchedule.push({
+                                id: `assembly-${timing.id}`,
+                                period: timing.label,
+                                time: `${formatTimeTo12(timing.start_time)} - ${formatTimeTo12(timing.end_time)}`,
+                                subject: 'Assembly',
+                                type: 'assembly',
+                                current: isCurrent
+                            });
+                            return;
+                        }
+
+                        const ownSlot = ownSlots.find(s => s.period_number === timing.period_number);
+                        const subSlot = substitutions.find(s => s.timetable_slots?.period_number === timing.period_number);
+
+                        if (subSlot) {
+                            builtSchedule.push({
+                                id: `sub-${subSlot.id}`,
+                                period: timing.label,
+                                time: `${formatTimeTo12(timing.start_time)} - ${formatTimeTo12(timing.end_time)}`,
+                                subject: `Substitution: ${subSlot.timetable_slots?.class || ''} - ${subSlot.timetable_slots?.subject || ''}`,
+                                className: subSlot.timetable_slots?.class,
+                                type: 'substitution',
+                                current: isCurrent
+                            });
+                        } else if (ownSlot) {
+                            builtSchedule.push({
+                                id: `slot-${ownSlot.id}`,
+                                period: timing.label,
+                                time: `${formatTimeTo12(timing.start_time)} - ${formatTimeTo12(timing.end_time)}`,
+                                subject: `${ownSlot.class} - ${ownSlot.subject}`,
+                                className: ownSlot.class,
+                                type: 'class',
+                                current: isCurrent
+                            });
+                        } else {
+                            builtSchedule.push({
+                                id: `free-${timing.period_number}`,
+                                period: timing.label,
+                                time: `${formatTimeTo12(timing.start_time)} - ${formatTimeTo12(timing.end_time)}`,
+                                subject: 'Free / Prep',
+                                type: 'free',
+                                current: isCurrent
+                            });
+                        }
+                    });
+
+                    setSchedule(builtSchedule);
                 }
 
             } catch (error) {
@@ -118,7 +225,6 @@ const TeacherDashboard: React.FC = () => {
         fetchDashboardData();
     }, [user]);
 
-    // Calculate attendance percentage for progress bar
     const recordedDays = attendanceStats.present + attendanceStats.absent;
     const attendancePercentage = recordedDays > 0 ? Math.round((attendanceStats.present / recordedDays) * 100) : 0;
 
@@ -130,13 +236,24 @@ const TeacherDashboard: React.FC = () => {
         );
     }
 
-
     return (
         <AppShell 
             title="Teacher Dashboard" 
             subtitle={`Welcome back, ${user?.displayName || 'Teacher'} 👋`}
         >
             <div className="animate-fade-in">
+
+                {/* Absent Today Banner */}
+                {isAbsentToday && (
+                    <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-3 animate-fade-in">
+                        <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                        <div>
+                            <p className="text-sm font-semibold text-amber-800">You are marked absent today.</p>
+                            <p className="text-xs text-amber-600">Your classes have been covered by substitute teachers.</p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Left Column - Main Stats */}
                     <div className="lg:col-span-2 space-y-8">
@@ -178,7 +295,6 @@ const TeacherDashboard: React.FC = () => {
                                 </div>
                             </div>
 
-
                             {/* Progress Bar */}
                             <div className="mt-6 relative z-10">
                                 <div className="flex justify-between text-xs font-medium text-slate-500 mb-2">
@@ -204,49 +320,74 @@ const TeacherDashboard: React.FC = () => {
                                     <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
                                         <Clock className="w-5 h-5" />
                                     </div>
-                                    <h3 className="font-bold text-slate-800">Today's Schedule</h3>
+                                    <div>
+                                        <h3 className="font-bold text-slate-800">Today's Schedule</h3>
+                                        <p className="text-xs text-slate-400">{DAY_NAMES[new Date().getDay()]}</p>
+                                    </div>
                                 </div>
                             </div>
 
                             <div className="p-2">
                                 <div className="h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                                     <div className="absolute top-0 bottom-0 left-8 w-px bg-slate-100 -z-10" />
-                                    {MOCK_SCHEDULE.map((item, idx) => (
-                                        <div key={item.id} className="relative py-3 px-4 mb-2 flex items-start gap-4 group">
-                                            {/* Timeline Node */}
-                                            <div className={`mt-1.5 w-3 h-3 rounded-full flex-shrink-0 z-10 border-2 transition-colors duration-300
-                                                ${item.current ? 'bg-indigo-600 border-indigo-200 ring-4 ring-indigo-50' : 
-                                                item.type === 'recess' ? 'bg-amber-400 border-white' : 
-                                                item.type === 'free' ? 'bg-slate-300 border-white' : 'bg-blue-400 border-white group-hover:bg-blue-600'}
-                                            `} />
-                                            
-                                            <div className={`flex-1 p-4 rounded-xl border transition-all duration-300 ${
-                                                item.current ? 'bg-indigo-50 border-indigo-100 shadow-sm' : 
-                                                item.type === 'recess' ? 'bg-amber-50 border-amber-100/50' :
-                                                item.type === 'free' ? 'bg-slate-50 border-transparent text-slate-500' :
-                                                'bg-white border-slate-100 hover:border-blue-200 hover:shadow-sm'
-                                            }`}>
-                                                <div className="flex justify-between items-start mb-1">
-                                                    <p className={`text-xs font-semibold uppercase tracking-wider ${item.current ? 'text-indigo-600' : item.type === 'recess' ? 'text-amber-600' : 'text-slate-400'}`}>
-                                                        {item.period}
-                                                    </p>
-                                                    {item.current && (
-                                                        <span className="flex h-2 w-2 relative">
-                                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <h4 className={`font-bold ${item.current ? 'text-indigo-900' : 'text-slate-800'}`}>
-                                                    {item.subject}
-                                                </h4>
-                                                <p className={`text-xs flex items-center gap-1 mt-2.5 ${item.current ? 'text-indigo-500 font-medium' : 'text-slate-400'}`}>
-                                                    <Clock className="w-3.5 h-3.5" />
-                                                    {item.time} {item.type === 'class' ? '· 35 mins' : item.type === 'recess' ? '· 30 mins' : ''}
-                                                </p>
-                                            </div>
+                                    {schedule.length === 0 ? (
+                                        <div className="py-10 text-center">
+                                            <p className="text-sm text-slate-400">No schedule configured for today.</p>
+                                            <p className="text-xs text-slate-300 mt-1">Contact admin to set up timetable.</p>
                                         </div>
-                                    ))}
+                                    ) : (
+                                        schedule.map((item) => (
+                                            <div key={item.id} className="relative py-3 px-4 mb-2 flex items-start gap-4 group">
+                                                {/* Timeline Node */}
+                                                <div className={`mt-1.5 w-3 h-3 rounded-full flex-shrink-0 z-10 border-2 transition-colors duration-300
+                                                    ${item.current ? 'bg-indigo-600 border-indigo-200 ring-4 ring-indigo-50' : 
+                                                    item.type === 'recess' ? 'bg-amber-400 border-white' : 
+                                                    item.type === 'free' ? 'bg-slate-300 border-white' : 
+                                                    item.type === 'substitution' ? 'bg-orange-500 border-orange-200 ring-2 ring-orange-50' :
+                                                    'bg-blue-400 border-white group-hover:bg-blue-600'}
+                                                `} />
+                                                
+                                                <div className={`flex-1 p-4 rounded-xl border transition-all duration-300 ${
+                                                    item.current ? 'bg-indigo-50 border-indigo-100 shadow-sm' : 
+                                                    item.type === 'recess' ? 'bg-amber-50 border-amber-100/50' :
+                                                    item.type === 'free' ? 'bg-slate-50 border-transparent text-slate-500' :
+                                                    item.type === 'substitution' ? 'bg-orange-50 border-orange-200 shadow-sm' :
+                                                    'bg-white border-slate-100 hover:border-blue-200 hover:shadow-sm'
+                                                }`}>
+                                                    <div className="flex justify-between items-start mb-1">
+                                                        <p className={`text-xs font-semibold uppercase tracking-wider ${
+                                                            item.current ? 'text-indigo-600' : 
+                                                            item.type === 'recess' ? 'text-amber-600' :
+                                                            item.type === 'substitution' ? 'text-orange-600' :
+                                                            'text-slate-400'
+                                                        }`}>
+                                                            {item.period}
+                                                            {item.type === 'substitution' && (
+                                                                <span className="ml-2 text-[9px] px-1.5 py-0.5 rounded bg-orange-200 text-orange-700 uppercase tracking-widest">SUB</span>
+                                                            )}
+                                                        </p>
+                                                        {item.current && (
+                                                            <span className="flex h-2 w-2 relative">
+                                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <h4 className={`font-bold ${
+                                                        item.current ? 'text-indigo-900' :
+                                                        item.type === 'substitution' ? 'text-orange-900' :
+                                                        'text-slate-800'
+                                                    }`}>
+                                                        {item.subject}
+                                                    </h4>
+                                                    <p className={`text-xs flex items-center gap-1 mt-2.5 ${item.current ? 'text-indigo-500 font-medium' : 'text-slate-400'}`}>
+                                                        <Clock className="w-3.5 h-3.5" />
+                                                        {item.time}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -256,5 +397,21 @@ const TeacherDashboard: React.FC = () => {
         </AppShell>
     );
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function timeToMinutes(time: string): number {
+    if (!time) return 0;
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + (m || 0);
+}
+
+function formatTimeTo12(time: string): string {
+    if (!time) return '';
+    const [h, m] = time.split(':').map(Number);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const hour = h % 12 || 12;
+    return `${hour.toString().padStart(2, '0')}:${(m || 0).toString().padStart(2, '0')} ${ampm}`;
+}
 
 export default TeacherDashboard;

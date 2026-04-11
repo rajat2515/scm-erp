@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Users, UserCheck, DollarSign, FileText,
     GraduationCap, LogOut, ChevronLeft, ChevronRight, IndianRupee,
-    BookOpen, BarChart3, CalendarCheck, FileBadge, ClipboardList, Layers
+    BookOpen, BarChart3, CalendarCheck, FileBadge, ClipboardList, Layers, CalendarDays
 } from 'lucide-react';
 import { supabase } from '@/config/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
@@ -29,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
     { label: 'Report Cards', icon: FileText, path: '/admin/reports', roles: ['admin'] },
     { label: 'Forms Center', icon: ClipboardList, path: '/admin/forms', roles: ['admin'] },
     { label: 'Session Config', icon: Layers, path: '/admin/sessions', roles: ['admin'] },
+    { label: 'Timetable', icon: CalendarDays, path: '/admin/timetable', roles: ['admin'] },
     // Teacher
     { label: 'My Dashboard', icon: LayoutDashboard, path: '/teacher', roles: ['teacher'] },
     { label: 'My Classes', icon: BookOpen, path: '/teacher/classes', roles: ['teacher'] },

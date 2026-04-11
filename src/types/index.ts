@@ -154,3 +154,46 @@ export interface AcademicSession {
     is_active: boolean; // Is it the ongoing global session?
     created_at?: string;
 }
+
+// ─── Timetable ────────────────────────────────────────────────────────────────
+
+export interface TimetableSlot {
+    id: number;
+    class: string;            // e.g. 'ONE A', 'NINE'
+    section: string;          // e.g. 'A', 'B' or '' for single-section
+    day_of_week: number;      // 1=Mon, 2=Tue ... 6=Sat
+    period_number: number;    // 1-8
+    subject: string;
+    teacher_id: number | null;
+    room?: string;
+    created_at?: string;
+    updated_at?: string;
+    // Joined fields (from teacher_registrations)
+    teacher_name?: string;
+}
+
+export interface PeriodTiming {
+    id: number;
+    period_number: number;
+    label: string;            // e.g. '1st Period', 'Recess'
+    start_time: string;       // HH:MM
+    end_time: string;         // HH:MM
+    type: 'class' | 'recess' | 'assembly';
+    created_at?: string;
+}
+
+export interface SubstituteAssignment {
+    id: number;
+    date: string;             // YYYY-MM-DD
+    original_teacher_id: number;
+    substitute_teacher_id: number;
+    timetable_slot_id: number;
+    reason?: string;
+    created_at?: string;
+    // Joined fields
+    original_teacher_name?: string;
+    substitute_teacher_name?: string;
+    slot_class?: string;
+    slot_subject?: string;
+    slot_period?: number;
+}
