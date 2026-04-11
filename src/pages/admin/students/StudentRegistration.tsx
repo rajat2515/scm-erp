@@ -174,24 +174,38 @@ const StudentRegistration: React.FC = () => {
     useEffect(() => {
         const fetchLatestSrNo = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('students')
-                    .select('sr_no')
-                    .order('sr_no', { ascending: true });
+                // Paginate through all students to avoid Supabase 1000-row cap
+                const allSrNos: number[] = [];
+                const batchSize = 1000;
+                let from = 0;
 
-                if (error) {
-                    console.error("Error fetching SR Nos:", error);
-                    return;
+                while (true) {
+                    const { data, error } = await supabase
+                        .from('students')
+                        .select('sr_no')
+                        .order('sr_no', { ascending: true })
+                        .range(from, from + batchSize - 1);
+
+                    if (error) {
+                        console.error("Error fetching SR Nos:", error);
+                        return;
+                    }
+                    if (!data || data.length === 0) break;
+
+                    allSrNos.push(...data.map(r => Number(r.sr_no)));
+
+                    if (data.length < batchSize) break; // last page
+                    from += batchSize;
                 }
-                
-                if (data && data.length > 0) {
-                    // Start checking from the smallest SR number in the table
-                    let expectedSr = data[0].sr_no;
-                    for (const row of data) {
-                        if (row.sr_no === expectedSr) {
+
+                if (allSrNos.length > 0) {
+                    // Find the first missing gap in the sorted list
+                    let expectedSr = allSrNos[0];
+                    for (const sr of allSrNos) {
+                        if (sr === expectedSr) {
                             expectedSr++;
-                        } else if (row.sr_no > expectedSr) {
-                            break; // We found the first missing gap
+                        } else if (sr > expectedSr) {
+                            break; // Found the first gap
                         }
                     }
                     setForm(prev => ({ ...prev, sr_no: expectedSr }));
