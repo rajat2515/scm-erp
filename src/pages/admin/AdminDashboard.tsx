@@ -175,73 +175,79 @@ const AdminDashboard: React.FC = () => {
                 ))}
             </section>
 
-            {/* Recent Activity */}
-            <div className="mb-6">
-                <div className="bg-card border border-border rounded-2xl p-6">
-                    <h2 className="font-semibold text-foreground mb-4">Recent Activity</h2>
-                    <div className="space-y-4">
-                        {activitiesLoading ? (
-                            Array(3).fill(0).map((_, i) => (
-                                <div key={i} className="flex items-start gap-3 animate-pulse">
-                                    <div className="w-8 h-8 rounded-lg bg-muted flex-shrink-0" />
-                                    <div className="flex-1 space-y-2">
-                                        <div className="h-2 bg-muted rounded w-3/4" />
-                                        <div className="h-2 bg-muted rounded w-1/2" />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                {/* Quick Actions */}
+                <div className="lg:col-span-2">
+                    <section>
+                        <h2 className="font-semibold text-foreground mb-3 text-sm">Quick Actions</h2>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            {[
+                                { label: 'Add Student', icon: Users, onClick: () => navigate('/admin/students/register'), gradient: 'gradient-primary' },
+                                { label: 'Add Staff', icon: UserCheck, onClick: () => navigate('/admin/staff'), gradient: 'gradient-rose' },
+                                { label: 'Student Form', icon: Download, onClick: () => handlePrintStudentReg(), gradient: 'gradient-primary', sub: 'Print A4' },
+                                { label: 'Staff Form', icon: Download, onClick: () => handlePrintStaffReg(), gradient: 'gradient-rose', sub: 'Print A4' },
+                                { label: 'Gate Pass', icon: AlertCircle, onClick: () => navigate('/admin/gate-pass'), gradient: 'gradient-emerald' },
+                                { label: 'School Income', icon: IndianRupee, onClick: () => navigate('/admin/income'), gradient: 'gradient-primary' },
+                                { label: 'Reports', icon: FileText, onClick: () => navigate('/admin/reports'), gradient: 'gradient-amber' },
+                                { label: 'Collect Tution Fee', icon: IndianRupee, onClick: () => navigate('/admin/fees'), gradient: 'gradient-emerald' },
+                                { label: 'Collect Transport Fees', icon: IndianRupee, onClick: () => navigate('/admin/fees'), gradient: 'gradient-amber' },
+                            ].map((action) => (
+                                <button
+                                    key={action.label}
+                                    onClick={action.onClick}
+                                    className="flex flex-col items-center justify-center gap-2 p-3 bg-card border border-border rounded-xl hover:shadow-md hover:-translate-y-0.5 transition-all group"
+                                >
+                                    <div className={`w-10 h-10 rounded-xl ${action.gradient} flex items-center justify-center shadow-sm mb-1`}>
+                                        <action.icon className="w-5 h-5 text-white" />
                                     </div>
-                                </div>
-                            ))
-                        ) : activities.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-4">No recent activities found.</p>
-                        ) : (
-                            activities.map((act, i) => (
-                                <div key={i} className="flex items-start gap-3">
-                                    <div className={`w-8 h-8 rounded-lg ${act.bg} flex items-center justify-center flex-shrink-0`}>
-                                        <act.icon className={`w-4 h-4 ${act.color}`} />
+                                    <div className="text-center">
+                                        <span className="text-[11px] font-bold text-foreground block">{action.label}</span>
+                                        {action.sub && <span className="text-[9px] text-muted-foreground font-medium">{action.sub}</span>}
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium text-foreground truncate">{act.action}</p>
-                                        <p className="text-xs text-muted-foreground truncate">{act.name}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+                </div>
+
+                {/* Recent Activity */}
+                <div className="lg:col-span-1">
+                    <div className="bg-card border border-border rounded-2xl p-6 h-full">
+                        <h2 className="font-semibold text-foreground mb-4">Recent Activity</h2>
+                        <div className="space-y-4">
+                            {activitiesLoading ? (
+                                Array(3).fill(0).map((_, i) => (
+                                    <div key={i} className="flex items-start gap-3 animate-pulse">
+                                        <div className="w-8 h-8 rounded-lg bg-muted flex-shrink-0" />
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-2 bg-muted rounded w-3/4" />
+                                            <div className="h-2 bg-muted rounded w-1/2" />
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-1 text-xs text-muted-foreground flex-shrink-0">
-                                        <Clock className="w-3 h-3" />
-                                        <span>{formatRelativeTime(act.time)}</span>
+                                ))
+                            ) : activities.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-4">No recent activities found.</p>
+                            ) : (
+                                activities.map((act, i) => (
+                                    <div key={i} className="flex items-start gap-3">
+                                        <div className={`w-8 h-8 rounded-lg ${act.bg} flex items-center justify-center flex-shrink-0`}>
+                                            <act.icon className={`w-4 h-4 ${act.color}`} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium text-foreground truncate">{act.action}</p>
+                                            <p className="text-xs text-muted-foreground truncate">{act.name}</p>
+                                        </div>
+                                        <div className="flex items-center gap-1 text-xs text-muted-foreground flex-shrink-0">
+                                            <Clock className="w-3 h-3" />
+                                            <span>{formatRelativeTime(act.time)}</span>
+                                        </div>
                                     </div>
-                                </div>
-                            ))
-                        )}
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
-
-            {/* Quick Actions */}
-            <section>
-                <h2 className="font-semibold text-foreground mb-3 text-sm">Quick Actions</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                    {[
-                        { label: 'Add Student', icon: Users, onClick: () => navigate('/admin/students/register'), gradient: 'gradient-primary' },
-                        { label: 'Add Staff', icon: UserCheck, onClick: () => navigate('/admin/staff'), gradient: 'gradient-rose' },
-                        { label: 'Student Form', icon: Download, onClick: () => handlePrintStudentReg(), gradient: 'gradient-primary', sub: 'Print A4' },
-                        { label: 'Staff Form', icon: Download, onClick: () => handlePrintStaffReg(), gradient: 'gradient-rose', sub: 'Print A4' },
-                        { label: 'Gate Pass', icon: AlertCircle, onClick: () => navigate('/admin/gate-pass'), gradient: 'gradient-emerald' },
-                        { label: 'School Income', icon: IndianRupee, onClick: () => navigate('/admin/income'), gradient: 'gradient-primary' },
-                        { label: 'Reports', icon: FileText, onClick: () => navigate('/admin/reports'), gradient: 'gradient-amber' },
-                    ].map((action) => (
-                        <button
-                            key={action.label}
-                            onClick={action.onClick}
-                            className="flex flex-col items-center justify-center gap-2 p-3 bg-card border border-border rounded-xl hover:shadow-md hover:-translate-y-0.5 transition-all group"
-                        >
-                            <div className={`w-10 h-10 rounded-xl ${action.gradient} flex items-center justify-center shadow-sm mb-1`}>
-                                <action.icon className="w-5 h-5 text-white" />
-                            </div>
-                            <div className="text-center">
-                                <span className="text-[11px] font-bold text-foreground block">{action.label}</span>
-                                {action.sub && <span className="text-[9px] text-muted-foreground font-medium">{action.sub}</span>}
-                            </div>
-                        </button>
-                    ))}
-                </div>
-            </section>
             {/* Hidden Print Components */}
             <div className="hidden">
                 <StudentRegistrationPrint ref={studentRegRef} />
