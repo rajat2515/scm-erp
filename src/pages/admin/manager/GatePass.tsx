@@ -326,11 +326,10 @@ export default function GatePass() {
         if (!btCharRef.current || !btDeviceRef.current?.gatt?.connected) {
             Swal.fire({
                 title: 'Printer Not Connected',
-                text: 'Please connect your Bluetooth printer first using the Connect button.',
+                html: 'Tap the <b>Connect Printer</b> button at the top of the page first, then try printing again.',
                 icon: 'warning',
-                confirmButtonText: 'Connect Now',
-                showCancelButton: true,
-            }).then(r => { if (r.isConfirmed) handleBtConnect(); });
+                confirmButtonText: 'OK',
+            });
             return;
         }
 
