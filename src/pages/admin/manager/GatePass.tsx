@@ -344,6 +344,9 @@ export default function GatePass() {
                 // Initialize printer
                 [ESC, 0x40],
 
+                // ── Reduce side padding ──
+                [GS, 0x4C, 0x00, 0x00],         // left margin = 0
+
                 // ── HEADER: School name (double size, centered) ──
                 [ESC, 0x61, 0x01],              // align center
                 [ESC, 0x45, 0x01],              // bold on
@@ -375,13 +378,15 @@ export default function GatePass() {
                 sep(W),
 
                 // ── STUDENT INFO ──
-                [ESC, 0x45, 0x01],
+                [ESC, 0x61, 0x01],              // align center
+                [ESC, 0x45, 0x01],              // bold on
                 tb('STUDENT INFO'), nl(),
-                [ESC, 0x45, 0x00],
-                labelRow('Name', gp.studentName, W),
-                labelRow('Class', gp.studentClass, W),
-                labelRow('SR No.', gp.srNo, W),
-                ...(gp.placeOfLiving ? [labelRow('Address', gp.placeOfLiving, W)] : []),
+                [GS, 0x21, 0x01],              // double height
+                tb(gp.studentName), nl(),
+                tb(gp.studentClass), nl(),
+                [GS, 0x21, 0x00],              // normal size
+                [ESC, 0x45, 0x00],              // bold off
+                tb('SR: ' + gp.srNo), nl(),
 
                 sep(W),
 
@@ -389,8 +394,8 @@ export default function GatePass() {
                 [ESC, 0x45, 0x01],
                 tb('GUARDIAN INFO'), nl(),
                 [ESC, 0x45, 0x00],
-                labelRow('Name', gp.parentName, W),
-                labelRow('Contact', gp.parentContact, W),
+                tb(gp.parentName || '-'), nl(),
+                tb(gp.parentContact || '-'), nl(),
 
                 sep(W),
 
@@ -398,19 +403,14 @@ export default function GatePass() {
                 [ESC, 0x45, 0x01],
                 tb('REASON:'), nl(),
                 [ESC, 0x45, 0x00],
-                wrap(gp.reason || '-', W),
+                tb(gp.reason || '-'), nl(),
 
                 sep(W),
 
                 // ── SIGNATURES ──
+                [ESC, 0x61, 0x00],              // align left
                 tb('Parent      Security      Admin'), nl(),
                 tb('________   _________   ________'), nl(),
-
-                sep(W),
-
-                // ── FOOTER ──
-                [ESC, 0x61, 0x01],
-                tb('SCM ERP - Valid for above date/time'), nl(),
 
                 // Feed & cut
                 [LF, LF, LF, LF],
@@ -772,50 +772,43 @@ export default function GatePass() {
                                         width: '240px',
                                         fontFamily: "'Courier New', Courier, monospace",
                                         fontSize: '11px',
-                                        padding: '12px 10px',
+                                        padding: '8px 4px',
                                         lineHeight: '1.6',
+                                        textAlign: 'center',
                                     }}
                                 >
-                                    <div style={{ textAlign: 'center', fontWeight: 900, fontSize: '14px' }}>
+                                    <div style={{ fontWeight: 900, fontSize: '14px' }}>
                                         SCM CHILDREN<br />ACADEMY
                                     </div>
-                                    <div style={{ textAlign: 'center', fontSize: '9px' }}>
+                                    <div style={{ fontSize: '9px' }}>
                                         Aff: 2132374 | Code: 81858<br />HALDAUR, BIJNOR
                                     </div>
                                     <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
-                                    <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '12px' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '12px' }}>
                                         *** GATE PASS ***
                                     </div>
-                                    <div style={{ textAlign: 'center', fontSize: '9px' }}>Early Departure</div>
+                                    <div style={{ fontSize: '9px' }}>Early Departure</div>
                                     <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
                                     <div>Date: {gatePassData.date}</div>
                                     <div>Time: {gatePassData.time}</div>
                                     <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
                                     <div style={{ fontWeight: 700 }}>STUDENT INFO</div>
-                                    <div>Name: {gatePassData.studentName}</div>
-                                    <div>Class: {gatePassData.studentClass}</div>
-                                    <div>SR No.: {gatePassData.srNo}</div>
+                                    <div style={{ fontWeight: 700, fontSize: '18px', lineHeight: '1.3' }}>{gatePassData.studentName}</div>
+                                    <div style={{ fontWeight: 700, fontSize: '18px', lineHeight: '1.3' }}>{gatePassData.studentClass}</div>
+                                    <div style={{ marginTop: '2px' }}>SR: {gatePassData.srNo}</div>
                                     <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
                                     <div style={{ fontWeight: 700 }}>GUARDIAN INFO</div>
-                                    <div>Name: {gatePassData.parentName || '-'}</div>
-                                    <div>Contact: {gatePassData.parentContact || '-'}</div>
+                                    <div>{gatePassData.parentName || '-'}</div>
+                                    <div>{gatePassData.parentContact || '-'}</div>
                                     <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
                                     <div style={{ fontWeight: 700 }}>REASON:</div>
                                     <div>{gatePassData.reason || '-'}</div>
                                     <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 700 }}>
-                                        <span>Parent</span>
-                                        <span>Security</span>
-                                        <span>Admin</span>
+                                    <div style={{ fontSize: '9px', fontWeight: 700 }}>
+                                        Parent &nbsp;&nbsp;&nbsp; Security &nbsp;&nbsp;&nbsp; Admin
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
-                                        <span>________</span>
-                                        <span>________</span>
-                                        <span>________</span>
-                                    </div>
-                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
-                                    <div style={{ textAlign: 'center', fontSize: '8px', color: '#666' }}>
-                                        SCM ERP - Valid for above date/time
+                                    <div style={{ fontSize: '9px' }}>
+                                        _______ &nbsp; _________ &nbsp; _______
                                     </div>
                                 </div>
                             )}
