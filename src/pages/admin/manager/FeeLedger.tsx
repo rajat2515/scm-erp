@@ -115,8 +115,9 @@ const StudentFeeTable: React.FC<{
 
     const rows = BASE_FEE_ROWS.map(r => {
         // RTE students have 0 due for tuition months
-        const due = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
+        const baseDue = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
         const pay = payMap.get(r.key);
+        const due = pay?.due_amount !== undefined ? pay.due_amount : baseDue;
         const paid = pay?.paid_amount || 0;
         const disc = pay?.discount || 0;
         const balance = Math.max(0, due - paid - disc);
@@ -424,9 +425,11 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     
     const itemsToCollect = Array.from(selectedKeys).map(k => {
         const r = BASE_FEE_ROWS.find(x => x.key === k)!;
-        const due = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
-        const paid = payMap.get(r.key)?.paid_amount || 0;
-        const disc = payMap.get(r.key)?.discount || 0;
+        const pay = payMap.get(r.key);
+        const baseDue = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
+        const due = pay?.due_amount !== undefined ? pay.due_amount : baseDue;
+        const paid = pay?.paid_amount || 0;
+        const disc = pay?.discount || 0;
         return { def: r, due, paid, disc };
     }).filter(x => (x.due - x.disc) > x.paid);
 

@@ -258,7 +258,7 @@ const StudentRegistration: React.FC = () => {
         if (!validateStep()) return;
         setSaving(true); setError('');
         try {
-            const { collect_admission_fee, pay_mode, ...studentData } = form;
+            const { collect_admission_fee, pay_mode, pay_status, ...studentData } = form;
             const payload = { ...studentData, sr_no: Number(form.sr_no) };
             
             const { error: insertError } = await supabase.from('students').insert([payload]);
@@ -269,7 +269,7 @@ const StudentRegistration: React.FC = () => {
             // Handle Admission Fee (one-time, single row)
             if (collect_admission_fee) {
                 const isPaidNow = form.pay_status === 'now';
-                const feeKey = `Admission Fee ${admissionYear}`;
+                const feeKey = `Annual Fee ${admissionYear}`;
                 const feePayload = {
                     sr_no: payload.sr_no,
                     month: feeKey,
