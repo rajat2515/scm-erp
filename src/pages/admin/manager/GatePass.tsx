@@ -1,13 +1,104 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/config/supabaseClient';
 import AppShell from '@/components/layout/AppShell';
-import { Search, Printer, FileBadge, Loader2, ClipboardList, Calendar, X, Trash2 } from 'lucide-react';
+import {
+    Search, Printer, FileBadge, Loader2, ClipboardList,
+    Calendar, X, Trash2, Bluetooth, BluetoothOff, BluetoothConnected, CheckCircle2
+} from 'lucide-react';
 import Swal from 'sweetalert2';
 import type { Student } from '@/types';
 import type { GatePassData } from '@/components/print/GatePassPrintLayout';
 
-const CLASSES = ['All', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B', 'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B', 'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE A', 'FIVE B', 'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT A', 'EIGHT B', 'NINE', 'TEN', 'TC', 'LS'];
+// ─────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────
+const CLASSES = [
+    'All', 'Nursery', 'NUR A', 'NUR B', 'LKG', 'LKG A', 'LKG B',
+    'UKG', 'UKG A', 'UKG B', 'ONE A', 'ONE B', 'TWO A', 'TWO B',
+    'THREE A', 'THREE B', 'FOUR A', 'FOUR B', 'FIVE A', 'FIVE B',
+    'SIX A', 'SIX B', 'SEVEN A', 'SEVEN B', 'EIGHT A', 'EIGHT B',
+    'NINE', 'TEN', 'TC', 'LS'
+];
 
+// Bluetooth service/characteristic UUIDs — covers most ESC/POS BLE printers
+const BT_SERVICE = '000018f0-0000-1000-8000-00805f9b34fb';
+const BT_CHARACTERISTIC = '00002af1-0000-1000-8000-00805f9b34fb';
+// Alternative UUIDs (uncomment if above don't work for your Fronix model)
+// const BT_SERVICE        = 'e7810a71-73ae-499d-8c15-faa9aef0c3f2';
+// const BT_CHARACTERISTIC = 'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f';
+
+const PRINTER_WIDTH = 32; // characters per line for 80mm at default font
+
+// ─────────────────────────────────────────────
+// ESC/POS HELPERS  (outside component — no re-creation on render)
+// ─────────────────────────────────────────────
+const ESC = 0x1b;
+const GS = 0x1d;
+const LF = 0x0a;
+
+const enc = new TextEncoder();
+
+/** Flatten nested number arrays into a single Uint8Array */
+function buildBytes(parts: (number[] | Uint8Array)[]): Uint8Array {
+    const flat: number[] = [];
+    for (const p of parts) flat.push(...Array.from(p));
+    return new Uint8Array(flat);
+}
+
+/** Text → bytes */
+const tb = (s: string): number[] => Array.from(enc.encode(s));
+
+/** Newline */
+const nl = (): number[] => [LF];
+
+/** Dashed separator */
+const sep = (w = PRINTER_WIDTH): number[] => [...tb('-'.repeat(w)), LF];
+
+/** Center-pad a string */
+const center = (s: string, w = PRINTER_WIDTH): string => {
+    const pad = Math.max(0, Math.floor((w - s.length) / 2));
+    return ' '.repeat(pad) + s;
+};
+
+/** Wrap long text to printer width */
+function wrap(text: string, w = PRINTER_WIDTH): number[] {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let cur = '';
+    for (const word of words) {
+        const next = cur ? `${cur} ${word}` : word;
+        if (next.length > w) { if (cur) lines.push(cur); cur = word; }
+        else cur = next;
+    }
+    if (cur) lines.push(cur);
+    return lines.flatMap(l => [...tb(l), LF]);
+}
+
+/** Label: Value  (right-aligns value, wraps if needed) */
+function labelRow(label: string, value: string, w = PRINTER_WIDTH): number[] {
+    const v = value || '-';
+    const combined = `${label}: ${v}`;
+    if (combined.length <= w) return [...tb(combined), LF];
+    // value is too long — put on next line indented
+    return [...tb(`${label}:`), LF, ...tb(`  ${v}`), LF];
+}
+
+/** Send Uint8Array to BLE characteristic in safe chunks */
+async function sendToPrinter(
+    characteristic: BluetoothRemoteGATTCharacteristic,
+    data: Uint8Array,
+    chunkSize = 100
+): Promise<void> {
+    for (let i = 0; i < data.length; i += chunkSize) {
+        await characteristic.writeValue(data.slice(i, i + chunkSize));
+        // Small delay between chunks — prevents buffer overflow on cheap BLE printers
+        await new Promise(r => setTimeout(r, 20));
+    }
+}
+
+// ─────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────
 interface GatePassRecord {
     id: string;
     student_name: string;
@@ -21,10 +112,15 @@ interface GatePassRecord {
     created_at: string;
 }
 
+type BtStatus = 'disconnected' | 'connecting' | 'connected' | 'printing';
+
+// ─────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────
 export default function GatePass() {
     const [activeTab, setActiveTab] = useState<'generate' | 'records'>('generate');
 
-    // --- GENERATE TAB STATE ---
+    // ── Generate tab state ──
     const [students, setStudents] = useState<Student[]>([]);
     const [loadingStudents, setLoadingStudents] = useState(true);
     const [searchStudent, setSearchStudent] = useState('');
@@ -35,18 +131,29 @@ export default function GatePass() {
     const [parentContact, setParentContact] = useState('');
     const [reasonType, setReasonType] = useState('Doctor Appointment');
     const [customReason, setCustomReason] = useState('');
-    
-    const [date, setDate] = useState(new Date().toLocaleDateString('en-GB'));
-    const [time, setTime] = useState(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
 
-    // --- RECORDS TAB STATE ---
+    const [date, setDate] = useState(new Date().toLocaleDateString('en-GB'));
+    const [time, setTime] = useState(
+        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    );
+
+    // ── Records tab state ──
     const [records, setRecords] = useState<GatePassRecord[]>([]);
     const [loadingRecords, setLoadingRecords] = useState(false);
     const [searchRecord, setSearchRecord] = useState('');
     const [filterDate, setFilterDate] = useState('');
     const [recordsError, setRecordsError] = useState('');
 
-    // --- EFFECTS ---
+    // ── Bluetooth state ──
+    const [btStatus, setBtStatus] = useState<BtStatus>('disconnected');
+    const [btDeviceName, setBtDeviceName] = useState('');
+    const btCharRef = useRef<BluetoothRemoteGATTCharacteristic | null>(null);
+    const btDeviceRef = useRef<BluetoothDevice | null>(null);
+
+    // ─────────────────────────────────────────
+    // EFFECTS
+    // ─────────────────────────────────────────
+    // Clock ticker
     useEffect(() => {
         const timer = setInterval(() => {
             const now = new Date();
@@ -56,8 +163,9 @@ export default function GatePass() {
         return () => clearInterval(timer);
     }, []);
 
+    // Load students
     useEffect(() => {
-        const fetchStudents = async () => {
+        (async () => {
             setLoadingStudents(true);
             const { data, error } = await supabase
                 .from('students')
@@ -66,17 +174,26 @@ export default function GatePass() {
                 .order('name');
             if (!error && data) setStudents(data);
             setLoadingStudents(false);
-        };
-        fetchStudents();
+        })();
     }, []);
 
-    // Fetch records only when the records tab is active
+    // Fetch records when records tab opens
     useEffect(() => {
-        if (activeTab === 'records') {
-            fetchRecords();
-        }
+        if (activeTab === 'records') fetchRecords();
     }, [activeTab]);
 
+    // Cleanup BT on unmount
+    useEffect(() => {
+        return () => {
+            if (btDeviceRef.current?.gatt?.connected) {
+                btDeviceRef.current.gatt.disconnect();
+            }
+        };
+    }, []);
+
+    // ─────────────────────────────────────────
+    // DATA FUNCTIONS
+    // ─────────────────────────────────────────
     const fetchRecords = async () => {
         setLoadingRecords(true);
         setRecordsError('');
@@ -93,15 +210,20 @@ export default function GatePass() {
         setLoadingRecords(false);
     };
 
-    // --- GENERATE LOGIC ---
-    const filteredStudents = (searchStudent === '' && searchClass === 'All') ? [] : students.filter(s => {
-        const matchSearch = searchStudent === '' || 
-            s.name.toLowerCase().includes(searchStudent.toLowerCase()) || 
-            s.sr_no.toString().includes(searchStudent) ||
-            (s.father_name || '').toLowerCase().includes(searchStudent.toLowerCase());
-        const matchClass = searchClass === 'All' || s.class === searchClass;
-        return matchSearch && matchClass;
-    }).slice(0, 5);
+    // ─────────────────────────────────────────
+    // STUDENT SELECTION
+    // ─────────────────────────────────────────
+    const filteredStudents = (searchStudent === '' && searchClass === 'All')
+        ? []
+        : students.filter(s => {
+            const matchSearch =
+                searchStudent === '' ||
+                s.name.toLowerCase().includes(searchStudent.toLowerCase()) ||
+                s.sr_no.toString().includes(searchStudent) ||
+                (s.father_name || '').toLowerCase().includes(searchStudent.toLowerCase());
+            const matchClass = searchClass === 'All' || s.class === searchClass;
+            return matchSearch && matchClass;
+        }).slice(0, 5);
 
     const handleSelectStudent = (student: Student) => {
         setSelectedStudent(student);
@@ -114,245 +236,220 @@ export default function GatePass() {
 
     const finalReason = reasonType === 'Other (Please specify)' ? customReason : reasonType;
 
-    const handlePrint = async () => {
-        if (!selectedStudent) return;
-
-        // Save record to Supabase before printing
-        const today = new Date();
-        const isoDate = today.toISOString().split('T')[0]; // YYYY-MM-DD
-        await supabase.from('gate_pass_records').insert({
-            student_id: selectedStudent.sr_no,
-            student_name: selectedStudent.name,
-            student_class: selectedStudent.class || '',
-            sr_no: selectedStudent.sr_no.toString(),
-            parent_name: parentName,
-            parent_contact: parentContact,
-            reason: finalReason,
-            pass_date: isoDate,
-            pass_time: time,
-        });
-
-        // Open a clean popup window with only the A4 gate pass content.
-        // This is the most reliable approach for Android Chrome and avoids CSS
-        // isolation issues that occur when calling window.print() on the main page.
-        const logoUrl = `${window.location.origin}/school-logo.png`;
-        const printHTML = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gate Pass</title>
-  <style>
-    @page { size: A4; margin: 0; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      width: 100%;
-      font-family: Arial, sans-serif;
-      font-size: 20px;
-      color: #000;
-      background: #fff;
-    }
-    .root {
-      width: 100%;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      padding: 10mm 12mm;
-    }
-
-    /* ── HEADER ── */
-    .header {
-      display: flex;
-      align-items: center;
-      border-bottom: 4px solid black;
-      padding-bottom: 5mm;
-      margin-bottom: 5mm;
-    }
-    .header img { width: 26mm; height: 26mm; object-fit: contain; margin-right: 6mm; }
-    .header-text { text-align: center; flex: 1; }
-    .school-name { font-weight: 900; font-size: 28px; text-transform: uppercase; letter-spacing: 1px; }
-    .school-sub  { font-size: 16px; font-weight: 600; margin-top: 3px; }
-
-    /* ── TITLE ── */
-    .title {
-      text-align: center;
-      font-weight: bold;
-      font-size: 24px;
-      text-decoration: underline;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      padding: 4mm 0;
-      border-bottom: 2px solid #000;
-      margin-bottom: 5mm;
-    }
-
-    /* ── DATE/TIME ROW ── */
-    .row-between {
-      display: flex;
-      justify-content: space-between;
-      font-size: 20px;
-      font-weight: bold;
-      margin-bottom: 5mm;
-    }
-    .row-between span { font-weight: normal; }
-
-    /* ── BODY (grows to fill space) ── */
-    .body {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
-
-    /* ── SECTIONS ── */
-    .section { margin-bottom: 0; }
-    .divider { border-top: 1.5px solid #999; margin-bottom: 5mm; margin-top: 5mm; }
-    .section-header {
-      font-weight: bold;
-      font-size: 19px;
-      background: #eee;
-      padding: 3mm 5mm;
-      margin-bottom: 4mm;
-      border-left: 6px solid #333;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .info-line { font-size: 22px; margin-bottom: 3mm; line-height: 1.5; }
-    .info-row  { display: flex; gap: 16mm; }
-    .bold { font-weight: 700; }
-
-    /* ── REASON ── */
-    .reason-label { font-weight: 700; font-size: 22px; margin-bottom: 3mm; }
-    .reason-line  {
-      font-size: 22px;
-      border-bottom: 2px dotted black;
-      min-height: 14mm;
-      padding-bottom: 3mm;
-      padding-top: 2mm;
-    }
-
-    /* ── SIGNATURES ── */
-    .sigs {
-      display: flex;
-      justify-content: space-between;
-      text-align: center;
-      padding-top: 5mm;
-    }
-    .sig-item { width: 28%; }
-    .sig-line {
-      border-top: 2px solid black;
-      padding-top: 4mm;
-      font-weight: bold;
-      font-size: 18px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-
-    /* ── FOOTER ── */
-    .footer { text-align: center; font-size: 15px; color: #666; padding-top: 4mm; border-top: 1px solid #ddd; margin-top: 4mm; }
-  </style>
-</head>
-<body>
-<div class="root">
-
-  <!-- Header -->
-  <div class="header">
-    <img src="${logoUrl}" alt="Logo" onerror="this.style.display='none'" />
-    <div class="header-text">
-      <div class="school-name">S.C.M. CHILDREN ACADEMY</div>
-      <div class="school-sub">Aff. No: 2132374 | Code: 81858</div>
-      <div class="school-sub">HALDAUR, BIJNOR</div>
-    </div>
-  </div>
-
-  <!-- Title -->
-  <div class="title">Gate Pass — Early Departure</div>
-
-  <!-- Date & Time -->
-  <div class="row-between">
-    <div>Date: <span>${gatePassData.date}</span></div>
-    <div>Time: <span>${gatePassData.time}</span></div>
-  </div>
-
-  <!-- Body fills remaining space -->
-  <div class="body">
-
-    <!-- Student Info -->
-    <div class="section">
-      <div class="section-header">Student Information</div>
-      <div class="info-line"><span class="bold">Name:</span> ${gatePassData.studentName || '—'}</div>
-      <div class="info-row">
-        <div class="info-line"><span class="bold">Class:</span> ${gatePassData.studentClass || '—'}</div>
-        <div class="info-line"><span class="bold">SR No:</span> ${gatePassData.srNo || '—'}</div>
-      </div>
-      <div class="info-line"><span class="bold">Address:</span> ${gatePassData.placeOfLiving || '—'}</div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Parent Info -->
-    <div class="section">
-      <div class="section-header">Parent / Guardian</div>
-      <div class="info-line"><span class="bold">Name:</span> ${gatePassData.parentName || '—'}</div>
-      <div class="info-line"><span class="bold">Contact:</span> ${gatePassData.parentContact || '—'}</div>
-    </div>
-
-    <div class="divider"></div>
-
-    <!-- Reason -->
-    <div class="section">
-      <div class="reason-label">Reason for Early Leave:</div>
-      <div class="reason-line">${gatePassData.reason || ''}</div>
-    </div>
-
-    <!-- Signatures pushed to bottom -->
-    <div class="sigs">
-      <div class="sig-item"><div class="sig-line">Parent</div></div>
-      <div class="sig-item"><div class="sig-line">Security</div></div>
-      <div class="sig-item"><div class="sig-line">Admin</div></div>
-    </div>
-
-  </div><!-- end .body -->
-
-  <div class="footer">SCM ERP System &bull; Valid for date &amp; time stated above</div>
-
-</div>
-<script>
-  window.onload = function() {
-    window.print();
-    setTimeout(function() { window.close(); }, 500);
-  };
-</script>
-</body>
-</html>`;
-
-        const printWin = window.open('', '_blank', 'width=400,height=600');
-        if (printWin) {
-            printWin.document.write(printHTML);
-            printWin.document.close();
-        }
-
-        // Refresh records in background so they are ready if user switches tabs
-        if (activeTab === 'generate') {
-            fetchRecords();
-        }
-    };
-
+    // ─────────────────────────────────────────
+    // GATE PASS DATA (must be BEFORE handlePrint)
+    // ─────────────────────────────────────────
     const gatePassData: GatePassData = {
         studentName: selectedStudent?.name || '',
         studentClass: selectedStudent?.class || '',
-        srNo: selectedStudent?.sr_no.toString() || '',
+        srNo: selectedStudent?.sr_no?.toString() || '',
         placeOfLiving: selectedStudent?.address || '',
-        parentName: parentName,
-        parentContact: parentContact,
+        parentName,
+        parentContact,
         reason: finalReason,
-        date: date,
-        time: time
+        date,
+        time,
     };
 
-    // --- RECORDS LOGIC ---
+    // ─────────────────────────────────────────
+    // BLUETOOTH — CONNECT
+    // ─────────────────────────────────────────
+    const handleBtConnect = async () => {
+        if (!('bluetooth' in navigator)) {
+            Swal.fire('Not Supported', 'Web Bluetooth is not supported in this browser.\nUse Chrome on Android.', 'error');
+            return;
+        }
+
+        // If already connected — disconnect
+        if (btStatus === 'connected' && btDeviceRef.current?.gatt?.connected) {
+            btDeviceRef.current.gatt.disconnect();
+            btCharRef.current = null;
+            btDeviceRef.current = null;
+            setBtStatus('disconnected');
+            setBtDeviceName('');
+            return;
+        }
+
+        setBtStatus('connecting');
+        try {
+            const device = await (navigator as any).bluetooth.requestDevice({
+                filters: [
+                    { services: [BT_SERVICE] },
+                    { namePrefix: 'Fronix' },
+                    { namePrefix: 'RPP' },
+                    { namePrefix: 'PTP' },
+                    { namePrefix: 'MTP' },
+                    { namePrefix: 'Printer' },
+                ],
+                optionalServices: [BT_SERVICE],
+            });
+
+            btDeviceRef.current = device;
+
+            // Handle unexpected disconnection
+            device.addEventListener('gattserverdisconnected', () => {
+                btCharRef.current = null;
+                setBtStatus('disconnected');
+                setBtDeviceName('');
+            });
+
+            const server = await device.gatt!.connect();
+            const service = await server.getPrimaryService(BT_SERVICE);
+            const char = await service.getCharacteristic(BT_CHARACTERISTIC);
+
+            btCharRef.current = char;
+            setBtDeviceName(device.name || 'Thermal Printer');
+            setBtStatus('connected');
+
+            Swal.fire({
+                title: 'Connected!',
+                text: `Paired with ${device.name || 'Thermal Printer'}`,
+                icon: 'success',
+                timer: 1800,
+                showConfirmButton: false,
+            });
+        } catch (err: any) {
+            setBtStatus('disconnected');
+            if (err.name !== 'NotFoundError') {
+                Swal.fire('Connection Failed', err.message || 'Could not connect to printer.', 'error');
+            }
+        }
+    };
+
+    // ─────────────────────────────────────────
+    // BLUETOOTH — PRINT
+    // ─────────────────────────────────────────
+    const handlePrint = async () => {
+        if (!selectedStudent) return;
+
+        // ── Check BT is connected ──
+        if (!btCharRef.current || !btDeviceRef.current?.gatt?.connected) {
+            Swal.fire({
+                title: 'Printer Not Connected',
+                text: 'Please connect your Bluetooth printer first using the Connect button.',
+                icon: 'warning',
+                confirmButtonText: 'Connect Now',
+                showCancelButton: true,
+            }).then(r => { if (r.isConfirmed) handleBtConnect(); });
+            return;
+        }
+
+        setBtStatus('printing');
+
+        try {
+            const W = PRINTER_WIDTH;
+            const gp = gatePassData;
+
+            // ── Build ESC/POS receipt ──
+            const receipt = buildBytes([
+                // Initialize printer
+                [ESC, 0x40],
+
+                // ── HEADER: School name (double size, centered) ──
+                [ESC, 0x61, 0x01],              // align center
+                [ESC, 0x45, 0x01],              // bold on
+                [GS, 0x21, 0x11],              // double width + height
+                tb('SCM CHILDREN'), nl(),
+                tb('ACADEMY'), nl(),
+                [GS, 0x21, 0x00],              // normal size
+                [ESC, 0x45, 0x00],              // bold off
+                tb('Aff: 2132374 | Code: 81858'), nl(),
+                tb('HALDAUR, BIJNOR'), nl(),
+
+                sep(W),
+
+                // ── TITLE ──
+                [ESC, 0x45, 0x01],
+                [GS, 0x21, 0x01],              // double height only
+                tb(center('*** GATE PASS ***', W)), nl(),
+                [GS, 0x21, 0x00],
+                [ESC, 0x45, 0x00],
+                tb(center('Early Departure', W)), nl(),
+
+                sep(W),
+
+                // ── DATE / TIME ──
+                [ESC, 0x61, 0x00],              // align left
+                labelRow('Date', gp.date, W),
+                labelRow('Time', gp.time, W),
+
+                sep(W),
+
+                // ── STUDENT INFO ──
+                [ESC, 0x45, 0x01],
+                tb('STUDENT INFO'), nl(),
+                [ESC, 0x45, 0x00],
+                labelRow('Name', gp.studentName, W),
+                labelRow('Class', gp.studentClass, W),
+                labelRow('SR No.', gp.srNo, W),
+                ...(gp.placeOfLiving ? [labelRow('Address', gp.placeOfLiving, W)] : []),
+
+                sep(W),
+
+                // ── GUARDIAN INFO ──
+                [ESC, 0x45, 0x01],
+                tb('GUARDIAN INFO'), nl(),
+                [ESC, 0x45, 0x00],
+                labelRow('Name', gp.parentName, W),
+                labelRow('Contact', gp.parentContact, W),
+
+                sep(W),
+
+                // ── REASON ──
+                [ESC, 0x45, 0x01],
+                tb('REASON:'), nl(),
+                [ESC, 0x45, 0x00],
+                wrap(gp.reason || '-', W),
+
+                sep(W),
+
+                // ── SIGNATURES ──
+                tb('Parent      Security      Admin'), nl(),
+                tb('________   _________   ________'), nl(),
+
+                sep(W),
+
+                // ── FOOTER ──
+                [ESC, 0x61, 0x01],
+                tb('SCM ERP - Valid for above date/time'), nl(),
+
+                // Feed & cut
+                [LF, LF, LF, LF],
+                [GS, 0x56, 0x41, 0x10],        // partial cut (ignored if unsupported)
+            ]);
+
+            await sendToPrinter(btCharRef.current, receipt);
+
+            // ── Save to Supabase after successful print ──
+            const today = new Date();
+            await supabase.from('gate_pass_records').insert({
+                student_id: selectedStudent.sr_no,
+                student_name: selectedStudent.name,
+                student_class: selectedStudent.class || '',
+                sr_no: selectedStudent.sr_no.toString(),
+                parent_name: parentName,
+                parent_contact: parentContact,
+                reason: finalReason,
+                pass_date: today.toISOString().split('T')[0],
+                pass_time: time,
+            });
+
+            setBtStatus('connected');
+            Swal.fire({ title: 'Printed!', icon: 'success', timer: 1500, showConfirmButton: false });
+            if (activeTab === 'generate') fetchRecords();
+
+        } catch (err: any) {
+            setBtStatus('connected');
+            Swal.fire('Print Failed', err.message || 'Could not send data to printer.', 'error');
+        }
+    };
+
+    // ─────────────────────────────────────────
+    // RECORDS
+    // ─────────────────────────────────────────
     const filteredRecords = records.filter(r => {
-        const matchSearch = searchRecord === '' || 
+        const matchSearch =
+            searchRecord === '' ||
             r.student_name.toLowerCase().includes(searchRecord.toLowerCase()) ||
             r.sr_no.includes(searchRecord) ||
             r.student_class.toLowerCase().includes(searchRecord.toLowerCase());
@@ -369,12 +466,12 @@ export default function GatePass() {
     const handleDeleteRecord = async (id: string) => {
         const result = await Swal.fire({
             title: 'Delete record?',
-            text: "Are you sure you want to delete this gate pass record? This cannot be undone.",
+            text: 'Are you sure you want to delete this gate pass record? This cannot be undone.',
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
             cancelButtonColor: '#3085d6',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: 'Yes, delete it!',
         });
 
         if (result.isConfirmed) {
@@ -382,54 +479,92 @@ export default function GatePass() {
                 const { error } = await supabase.from('gate_pass_records').delete().eq('id', id);
                 if (error) throw error;
                 setRecords(prev => prev.filter(r => r.id !== id));
-                Swal.fire({
-                    title: 'Deleted!',
-                    text: 'The gate pass record has been deleted.',
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
+                Swal.fire({ title: 'Deleted!', text: 'Record deleted.', icon: 'success', timer: 1800, showConfirmButton: false });
             } catch (err: any) {
-                Swal.fire('Error!', 'Failed to delete record: ' + err.message, 'error');
+                Swal.fire('Error!', 'Failed to delete: ' + err.message, 'error');
             }
         }
     };
 
+    // ─────────────────────────────────────────
+    // BT STATUS UI HELPERS
+    // ─────────────────────────────────────────
+    const btButtonLabel = () => {
+        if (btStatus === 'connecting') return 'Connecting…';
+        if (btStatus === 'printing') return 'Printing…';
+        if (btStatus === 'connected') return btDeviceName || 'Connected';
+        return 'Connect Printer';
+    };
+
+    const btButtonIcon = () => {
+        if (btStatus === 'connecting' || btStatus === 'printing')
+            return <Loader2 className="w-4 h-4 animate-spin" />;
+        if (btStatus === 'connected')
+            return <BluetoothConnected className="w-4 h-4" />;
+        return <Bluetooth className="w-4 h-4" />;
+    };
+
+    const btButtonClass = () => {
+        const base = 'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all';
+        if (btStatus === 'connected')
+            return `${base} bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100`;
+        if (btStatus === 'connecting' || btStatus === 'printing')
+            return `${base} bg-blue-50 text-blue-600 border-blue-200 cursor-wait`;
+        return `${base} bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground`;
+    };
+
+    // ─────────────────────────────────────────
+    // RENDER
+    // ─────────────────────────────────────────
     return (
         <AppShell title="Gate Pass Management" subtitle="Issue passes and view departure records">
-            
-            {/* Tab Navigation (Hidden in print) */}
-            <div className="flex bg-muted/50 p-1.5 rounded-2xl w-fit mb-8 print:hidden">
-                <button
-                    onClick={() => setActiveTab('generate')}
-                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                        activeTab === 'generate' 
-                        ? 'bg-card text-foreground shadow-sm' 
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                    }`}
-                >
-                    <FileBadge className="w-4 h-4" />
-                    Generate Pass
-                </button>
-                <button
-                    onClick={() => setActiveTab('records')}
-                    className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                        activeTab === 'records' 
-                        ? 'bg-card text-foreground shadow-sm' 
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                    }`}
-                >
-                    <ClipboardList className="w-4 h-4" />
-                    Pass Records
+
+            {/* ── Top bar: Tabs + BT connect button ── */}
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+                {/* Tabs */}
+                <div className="flex bg-muted/50 p-1.5 rounded-2xl">
+                    <button
+                        onClick={() => setActiveTab('generate')}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'generate'
+                                ? 'bg-card text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            }`}
+                    >
+                        <FileBadge className="w-4 h-4" />
+                        Generate Pass
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('records')}
+                        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'records'
+                                ? 'bg-card text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            }`}
+                    >
+                        <ClipboardList className="w-4 h-4" />
+                        Pass Records
+                    </button>
+                </div>
+
+                {/* Bluetooth Connect Button */}
+                <button onClick={handleBtConnect} className={btButtonClass()} disabled={btStatus === 'printing'}>
+                    {btButtonIcon()}
+                    {btButtonLabel()}
+                    {btStatus === 'connected' && (
+                        <span className="ml-1 text-xs text-emerald-500 font-normal">(tap to disconnect)</span>
+                    )}
                 </button>
             </div>
 
-            {/* TAB: GENERATE PASS */}
+            {/* ════════════════════════════════
+                TAB: GENERATE PASS
+            ════════════════════════════════ */}
             {activeTab === 'generate' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10 print:hidden animate-fade-in">
-                    
-                    {/* Left Column: Form Controls */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10 animate-fade-in">
+
+                    {/* Left: Form */}
                     <div className="space-y-6">
+
+                        {/* Step 1 — Select Student */}
                         <div className="bg-card border border-border rounded-3xl p-6 shadow-sm">
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-lg shadow-primary/20">
@@ -442,25 +577,29 @@ export default function GatePass() {
                                 <div className="relative flex-1">
                                     <input
                                         type="text"
-                                        placeholder="Search by Student Name, SR No, or Father's Name..."
+                                        placeholder="Search by name, SR No. or Father's Name…"
                                         value={searchStudent}
-                                        onChange={(e) => setSearchStudent(e.target.value)}
+                                        onChange={e => setSearchStudent(e.target.value)}
                                         className="w-full pl-4 pr-10 py-3 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                                     />
-                                    {loadingStudents && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />}
+                                    {loadingStudents && (
+                                        <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
+                                    )}
                                 </div>
-                                <select 
-                                    value={searchClass} 
-                                    onChange={(e) => setSearchClass(e.target.value)} 
+                                <select
+                                    value={searchClass}
+                                    onChange={e => setSearchClass(e.target.value)}
                                     className="px-4 py-3 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all min-w-[120px]"
                                 >
-                                    {CLASSES.map(c => <option key={c} value={c}>{c === 'All' ? 'All Classes' : c}</option>)}
+                                    {CLASSES.map(c => (
+                                        <option key={c} value={c}>{c === 'All' ? 'All Classes' : c}</option>
+                                    ))}
                                 </select>
                             </div>
 
-                            {/* Search Dropdown Results */}
+                            {/* Dropdown results */}
                             {!selectedStudent && (searchStudent || searchClass !== 'All') && (
-                                <div className="mt-2 border border-border rounded-xl bg-card overflow-hidden shadow-lg absolute z-50 w-full lg:w-auto left-6 right-6 lg:right-auto lg:w-[calc(50%-2rem)]">
+                                <div className="mt-2 border border-border rounded-xl bg-card overflow-hidden shadow-lg absolute z-50 left-6 right-6 lg:right-auto lg:w-[calc(50%-2rem)]">
                                     {filteredStudents.length > 0 ? (
                                         filteredStudents.map(student => (
                                             <button
@@ -470,31 +609,44 @@ export default function GatePass() {
                                             >
                                                 <div>
                                                     <div className="font-semibold text-sm">{student.name}</div>
-                                                    <div className="text-xs text-muted-foreground">Class: {student.class} | Guardian: {student.father_name || 'N/A'}</div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        Class: {student.class} | Guardian: {student.father_name || 'N/A'}
+                                                    </div>
                                                 </div>
-                                                <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-1 rounded-md">SR: {student.sr_no}</span>
+                                                <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-1 rounded-md">
+                                                    SR: {student.sr_no}
+                                                </span>
                                             </button>
                                         ))
                                     ) : (
-                                        <div className="px-4 py-3 text-sm text-muted-foreground">No active students found matching "{searchStudent}"</div>
+                                        <div className="px-4 py-3 text-sm text-muted-foreground">
+                                            No active students found matching "{searchStudent}"
+                                        </div>
                                     )}
                                 </div>
                             )}
 
+                            {/* Selected student chip */}
                             {selectedStudent && (
                                 <div className="mt-6 p-4 rounded-2xl bg-primary/5 border border-primary/20 flex items-center justify-between animate-fade-in">
                                     <div>
                                         <div className="text-xs font-semibold text-primary mb-1 uppercase tracking-wider">Selected Student</div>
                                         <div className="font-bold text-lg">{selectedStudent.name}</div>
-                                        <div className="text-sm text-muted-foreground">Class {selectedStudent.class} • SR. {selectedStudent.sr_no}</div>
+                                        <div className="text-sm text-muted-foreground">
+                                            Class {selectedStudent.class} • SR. {selectedStudent.sr_no}
+                                        </div>
                                     </div>
-                                    <button onClick={() => setSelectedStudent(null)} className="text-xs font-medium text-red-500 hover:text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100 transition-colors">
+                                    <button
+                                        onClick={() => setSelectedStudent(null)}
+                                        className="text-xs font-medium text-red-500 hover:text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100 transition-colors"
+                                    >
                                         Clear
                                     </button>
                                 </div>
                             )}
                         </div>
 
+                        {/* Step 2 — Pass Details */}
                         <div className={`bg-card border border-border rounded-3xl p-6 shadow-sm transition-opacity duration-300 ${selectedStudent ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                             <div className="flex items-center gap-3 mb-6">
                                 <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-lg shadow-primary/20">
@@ -506,106 +658,165 @@ export default function GatePass() {
                             <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">Parent / Authorized Person</label>
-                                        <input 
-                                            type="text" 
-                                            value={parentName} 
+                                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                                            Parent / Authorized Person
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={parentName}
                                             onChange={e => setParentName(e.target.value)}
                                             className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                                         />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">Contact Number</label>
-                                        <input 
-                                            type="text" 
-                                            value={parentContact} 
+                                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                                            Contact Number
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={parentContact}
                                             onChange={e => setParentContact(e.target.value)}
                                             className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                                         />
                                     </div>
                                 </div>
-                                
+
                                 <div>
-                                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">Reason for Early Leave</label>
+                                    <label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                                        Reason for Early Leave
+                                    </label>
                                     <select
                                         value={reasonType}
                                         onChange={e => setReasonType(e.target.value)}
-                                        className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%24%2024%22%20fill%3D%22none%22%20stroke%3D%22%23666%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1em_1em] bg-no-repeat bg-[position:right_1rem_center]"
+                                        className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                                     >
-                                        <option value="Doctor Appointment">Doctor Appointment</option>
-                                        <option value="Family Emergency">Family Emergency</option>
-                                        <option value="To Attend Function">To Attend Function</option>
-                                        <option value="Parent Choice">Parent Choice</option>
-                                        <option value="Going Out of Station">Going Out of Station</option>
-                                        <option value="Other (Please specify)">Other (Please specify)</option>
+                                        <option>Doctor Appointment</option>
+                                        <option>Family Emergency</option>
+                                        <option>To Attend Function</option>
+                                        <option>Parent Choice</option>
+                                        <option>Going Out of Station</option>
+                                        <option>Other (Please specify)</option>
                                     </select>
                                 </div>
 
                                 {reasonType === 'Other (Please specify)' && (
                                     <div className="animate-fade-in">
-                                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">Specify Reason</label>
-                                        <textarea 
+                                        <label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                                            Specify Reason
+                                        </label>
+                                        <textarea
                                             rows={2}
-                                            value={customReason} 
+                                            value={customReason}
                                             onChange={e => setCustomReason(e.target.value)}
-                                            placeholder="Enter specific reason..."
+                                            placeholder="Enter specific reason…"
                                             className="w-full px-3 py-2 bg-background border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none"
                                         />
                                     </div>
                                 )}
                             </div>
 
-                            <button 
+                            {/* BT status hint inside form */}
+                            {btStatus === 'disconnected' && (
+                                <div className="mt-4 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl">
+                                    <BluetoothOff className="w-3.5 h-3.5 flex-shrink-0" />
+                                    Printer not connected — tap <strong className="mx-1">Connect Printer</strong> at the top before printing.
+                                </div>
+                            )}
+                            {btStatus === 'connected' && (
+                                <div className="mt-4 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
+                                    <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                                    Printer ready: <strong className="ml-1">{btDeviceName}</strong>
+                                </div>
+                            )}
+
+                            {/* Print button */}
+                            <button
                                 onClick={handlePrint}
-                                disabled={!selectedStudent}
-                                className={`w-full mt-6 py-3 rounded-xl flex justify-center items-center gap-2 font-bold transition-all shadow-lg ${
-                                    selectedStudent 
-                                    ? 'gradient-primary text-white shadow-primary/25 hover:opacity-90 hover:scale-[1.01]' 
-                                    : 'bg-muted text-muted-foreground shadow-none'
-                                }`}
+                                disabled={!selectedStudent || btStatus === 'printing'}
+                                className={`w-full mt-6 py-3 rounded-xl flex justify-center items-center gap-2 font-bold transition-all shadow-lg ${selectedStudent && btStatus !== 'printing'
+                                        ? 'gradient-primary text-white shadow-primary/25 hover:opacity-90 hover:scale-[1.01]'
+                                        : 'bg-muted text-muted-foreground shadow-none cursor-not-allowed'
+                                    }`}
                             >
-                                <Printer className="w-5 h-5" />
-                                Generate & Print Gate Pass
+                                {btStatus === 'printing'
+                                    ? <><Loader2 className="w-5 h-5 animate-spin" /> Printing…</>
+                                    : <><Printer className="w-5 h-5" /> Generate &amp; Print Gate Pass</>
+                                }
                             </button>
                         </div>
                     </div>
 
-                    {/* Right Column: Live Preview Box */}
-                    <div className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col hidden lg:flex">
+                    {/* Right: Live Preview */}
+                    <div className="bg-card border border-border rounded-3xl p-6 shadow-sm hidden lg:flex flex-col">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
                                 <Printer className="w-5 h-5 text-muted-foreground" />
                             </div>
                             <h2 className="text-xl font-bold">Live Preview</h2>
+                            <span className="ml-auto text-xs text-muted-foreground bg-muted px-2 py-1 rounded-lg">
+                                Thermal 80mm
+                            </span>
                         </div>
 
-                        {/* Miniature representation of the pass */}
-                        <div className="flex-1 border-2 border-dashed border-border rounded-2xl bg-muted/10 p-6 flex flex-col justify-center max-h-[600px] overflow-y-auto">
+                        {/* Thermal receipt preview */}
+                        <div className="flex-1 border-2 border-dashed border-border rounded-2xl bg-muted/10 p-4 flex items-start justify-center overflow-y-auto">
                             {!selectedStudent ? (
-                                <div className="text-center text-muted-foreground">
+                                <div className="text-center text-muted-foreground mt-16">
                                     <FileBadge className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                    <p>Select a student to generate preview</p>
+                                    <p>Select a student to preview</p>
                                 </div>
                             ) : (
-                                <div className="bg-white p-6 shadow-sm border border-border/50 rounded-lg text-black animate-fade-in scale-[0.85] transform origin-top w-full">
-                                    <div className="text-center border-b pb-2 mb-4">
-                                        <h3 className="font-extrabold text-lg">S.C.M. CHILDREN ACADEMY</h3>
-                                        <p className="text-[10px] text-gray-500 font-bold">GATE PASS - EARLY DEPARTURE</p>
+                                /* Simulated 80mm thermal receipt */
+                                <div
+                                    className="bg-white shadow-md text-black animate-fade-in"
+                                    style={{
+                                        width: '240px',
+                                        fontFamily: "'Courier New', Courier, monospace",
+                                        fontSize: '11px',
+                                        padding: '12px 10px',
+                                        lineHeight: '1.6',
+                                    }}
+                                >
+                                    <div style={{ textAlign: 'center', fontWeight: 900, fontSize: '14px' }}>
+                                        SCM CHILDREN<br />ACADEMY
                                     </div>
-                                    <div className="space-y-2 text-xs">
-                                        <p><strong>Student:</strong> {gatePassData.studentName}</p>
-                                        <p><strong>Class:</strong> {gatePassData.studentClass} | <strong>SR:</strong> {gatePassData.srNo}</p>
-                                        <p><strong>Authorized By:</strong> {gatePassData.parentName}</p>
-                                        <p><strong>Reason:</strong> {gatePassData.reason || '_____________________'}</p>
-                                        <div className="flex justify-between mt-4 font-semibold">
-                                            <span>Date: {gatePassData.date}</span>
-                                            <span>Time: {gatePassData.time}</span>
-                                        </div>
+                                    <div style={{ textAlign: 'center', fontSize: '9px' }}>
+                                        Aff: 2132374 | Code: 81858<br />HALDAUR, BIJNOR
                                     </div>
-                                    <div className="grid grid-cols-3 gap-2 mt-8 text-center text-[8px] font-bold text-gray-400">
-                                        <div className="border-t border-gray-400 pt-1">Parent</div>
-                                        <div className="border-t border-gray-400 pt-1">Security</div>
-                                        <div className="border-t border-gray-400 pt-1">Admin</div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '12px' }}>
+                                        *** GATE PASS ***
+                                    </div>
+                                    <div style={{ textAlign: 'center', fontSize: '9px' }}>Early Departure</div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div>Date: {gatePassData.date}</div>
+                                    <div>Time: {gatePassData.time}</div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div style={{ fontWeight: 700 }}>STUDENT INFO</div>
+                                    <div>Name: {gatePassData.studentName}</div>
+                                    <div>Class: {gatePassData.studentClass}</div>
+                                    <div>SR No.: {gatePassData.srNo}</div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div style={{ fontWeight: 700 }}>GUARDIAN INFO</div>
+                                    <div>Name: {gatePassData.parentName || '-'}</div>
+                                    <div>Contact: {gatePassData.parentContact || '-'}</div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div style={{ fontWeight: 700 }}>REASON:</div>
+                                    <div>{gatePassData.reason || '-'}</div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 700 }}>
+                                        <span>Parent</span>
+                                        <span>Security</span>
+                                        <span>Admin</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px' }}>
+                                        <span>________</span>
+                                        <span>________</span>
+                                        <span>________</span>
+                                    </div>
+                                    <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
+                                    <div style={{ textAlign: 'center', fontSize: '8px', color: '#666' }}>
+                                        SCM ERP - Valid for above date/time
                                     </div>
                                 </div>
                             )}
@@ -614,12 +825,15 @@ export default function GatePass() {
                 </div>
             )}
 
-            {/* TAB: RECORDS */}
+            {/* ════════════════════════════════
+                TAB: PASS RECORDS
+            ════════════════════════════════ */}
             {activeTab === 'records' && (
-                <div className="animate-fade-in print:hidden">
+                <div className="animate-fade-in">
+
                     {/* Toolbar */}
                     <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                        {/* Search box */}
+                        {/* Search */}
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
@@ -643,7 +857,7 @@ export default function GatePass() {
                                 type="date"
                                 value={filterDate}
                                 onChange={e => setFilterDate(e.target.value)}
-                                className="pl-9 pr-4 py-2.5 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                                className="pl-9 pr-9 py-2.5 bg-muted/30 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                             />
                             {filterDate && (
                                 <button onClick={() => setFilterDate('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -652,7 +866,7 @@ export default function GatePass() {
                             )}
                         </div>
 
-                        {/* Total badge */}
+                        {/* Count badge */}
                         <div className="flex items-center px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-xl text-sm font-semibold text-primary whitespace-nowrap">
                             {filteredRecords.length} Record{filteredRecords.length !== 1 ? 's' : ''}
                         </div>
