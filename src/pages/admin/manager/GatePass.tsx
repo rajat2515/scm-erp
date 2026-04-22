@@ -525,8 +525,8 @@ export default function GatePass() {
                     <button
                         onClick={() => setActiveTab('generate')}
                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'generate'
-                                ? 'bg-card text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                             }`}
                     >
                         <FileBadge className="w-4 h-4" />
@@ -535,8 +535,8 @@ export default function GatePass() {
                     <button
                         onClick={() => setActiveTab('records')}
                         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${activeTab === 'records'
-                                ? 'bg-card text-foreground shadow-sm'
-                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                             }`}
                     >
                         <ClipboardList className="w-4 h-4" />
@@ -733,8 +733,8 @@ export default function GatePass() {
                                 onClick={handlePrint}
                                 disabled={!selectedStudent || btStatus === 'printing'}
                                 className={`w-full mt-6 py-3 rounded-xl flex justify-center items-center gap-2 font-bold transition-all shadow-lg ${selectedStudent && btStatus !== 'printing'
-                                        ? 'gradient-primary text-white shadow-primary/25 hover:opacity-90 hover:scale-[1.01]'
-                                        : 'bg-muted text-muted-foreground shadow-none cursor-not-allowed'
+                                    ? 'gradient-primary text-white shadow-primary/25 hover:opacity-90 hover:scale-[1.01]'
+                                    : 'bg-muted text-muted-foreground shadow-none cursor-not-allowed'
                                     }`}
                             >
                                 {btStatus === 'printing'
