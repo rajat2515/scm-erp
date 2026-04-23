@@ -259,29 +259,44 @@ const StudentRegistration: React.FC = () => {
         setSaving(true); setError('');
         try {
             const { collect_admission_fee, pay_mode, pay_status, ...studentData } = form;
-            const payload = { ...studentData, sr_no: Number(form.sr_no) };
+            const payload = { ...studentData, sr_no: Number(form.sr_no), is_new_admission: true };
             
             const { error: insertError } = await supabase.from('students').insert([payload]);
             if (insertError) throw insertError;
 
             const admissionYear = getAdmissionYear(form.admission_date);
 
-            // Handle Admission Fee (one-time, single row)
+            // Handle Admission Fee — split into 2 separate rows for clean ledger tracking
             if (collect_admission_fee) {
                 const isPaidNow = form.pay_status === 'now';
-                const feeKey = `Annual Fee ${admissionYear}`;
-                const feePayload = {
+                
+                // Row 1: Annual Fee (₹1200) — same key as FeeLedger BASE_FEE_ROWS
+                const annualFeePayload = {
                     sr_no: payload.sr_no,
-                    month: feeKey,
-                    due_amount: ADMISSION_FEE_TOTAL,
-                    paid_amount: isPaidNow ? ADMISSION_FEE_TOTAL : 0,
+                    month: `Annual Fee ${admissionYear}`,
+                    due_amount: 1200,
+                    paid_amount: isPaidNow ? 1200 : 0,
                     paid_on: isPaidNow ? new Date().toISOString().split('T')[0] : null,
                     mode: isPaidNow ? pay_mode : 'unpaid',
                 };
-                const { error: feeErr } = await supabase.from('fee_payments').insert([feePayload]);
+                
+                // Row 2: Admission Fee (₹3900) — separate row for admission charges
+                const admissionFeePayload = {
+                    sr_no: payload.sr_no,
+                    month: `Admission Fee ${admissionYear}`,
+                    due_amount: 3900,
+                    paid_amount: isPaidNow ? 3900 : 0,
+                    paid_on: isPaidNow ? new Date().toISOString().split('T')[0] : null,
+                    mode: isPaidNow ? pay_mode : 'unpaid',
+                };
+
+                const { error: feeErr } = await supabase.from('fee_payments').insert([annualFeePayload, admissionFeePayload]);
                 if (feeErr) console.error("Could not add admission fee:", feeErr);
 
+                // If fully paid now, auto-clear is_new_admission
                 if (isPaidNow) {
+                    await supabase.from('students').update({ is_new_admission: false }).eq('sr_no', payload.sr_no);
+
                     // Build receipt data for printing
                     const receiptData: AdmissionReceiptData = {
                         student: {
@@ -459,7 +474,10 @@ const StudentRegistration: React.FC = () => {
                             </div>
                             <div>
                                 <label className={lc}>Religion</label>
-                                <input value={form.religion} onChange={(e) => update('religion', e.target.value)} className={ic} placeholder="e.g. Hindu, Muslim, Christian" />
+                                <select value={form.religion} onChange={(e) => update('religion', e.target.value)} className={ic}>
+                                    <option value="">— Select —</option>
+                                    {['Hindu', 'Muslim', 'Sikh', 'Christian', 'Jain', 'Buddhist', 'Other'].map(r => <option key={r}>{r}</option>)}
+                                </select>
                             </div>
                             <div>
                                 <label className={lc}>Father's Occupation</label>

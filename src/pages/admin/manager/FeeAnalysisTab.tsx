@@ -80,6 +80,7 @@ import { CLASSES } from '../students/StudentDirectory';
 /* ─── Constants ─────────────────────────────────────────────── */
 const ANNUAL_FEE = 1200;
 const EXAM_FEE = 200;
+const ADMISSION_FEE = 3900;
 
 const MONTHS_2026_27 = [
     { key: 'April 2026',     label: 'Apr', session: '2026-27' },
@@ -135,6 +136,7 @@ interface StudentRec {
     rte?: string;
     tuition_discount?: number;
     status?: string;
+    is_new_admission?: boolean;
 }
 
 interface PaymentRec {
@@ -407,7 +409,7 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         // 1. Students
         let sq = supabase
             .from('students')
-            .select('sr_no,name,class,rte,tuition_discount,status')
+            .select('sr_no,name,class,rte,tuition_discount,status,is_new_admission')
             .eq('status', 'active');
         if (classFilter) sq = sq.ilike('class', classFilter.replace(/\s+/g, '%'));
 
@@ -425,7 +427,7 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
         // 2. Payments — fetch all months for this session
         const monthKeys = sessionMonths.map(m => m.key);
-        monthKeys.push(`Annual Fee ${session}`, 'Exam Fee Term 1', 'Exam Fee Term 2'); // add extra fees
+        monthKeys.push(`Annual Fee ${session}`, `Admission Fee ${session}`, 'Exam Fee Term 1', 'Exam Fee Term 2'); // add extra fees
 
         const { data: payData } = await supabase
             .from('fee_payments')
@@ -492,6 +494,14 @@ const FeeAnalysisTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                     expectedTotal += EXAM_FEE;
                     const rE2 = payMap.get(`${s.sr_no}::Exam Fee Term 2`);
                     paidTotal += Math.min((rE2?.paid_amount || 0) + (rE2?.discount || 0), EXAM_FEE);
+
+                    // Admission Fee (only for new admission students)
+                    if (s.is_new_admission) {
+                        const admKey = `Admission Fee ${session}`;
+                        expectedTotal += ADMISSION_FEE;
+                        const rAdm = payMap.get(`${s.sr_no}::${admKey}`);
+                        paidTotal += Math.min((rAdm?.paid_amount || 0) + (rAdm?.discount || 0), ADMISSION_FEE);
+                    }
                 }
 
                 const balance = Math.max(0, expectedTotal - paidTotal);

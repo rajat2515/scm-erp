@@ -15,6 +15,7 @@ import { CLASSES } from '../students/StudentDirectory';
 /* ─── Constants ──────────────────────────────────────────── */
 const ANNUAL_FEE = 1200;
 const EXAM_FEE = 200;
+const ADMISSION_FEE = 3900;
 
 /* ─── Transport Zone Fee Structure ──────────────────────── */
 const TRANSPORT_ZONES = [
@@ -42,13 +43,14 @@ function detectZoneIndex(address?: string): number {
 
 interface FeeRowDef {
     key: string; label: string;
-    type: 'annual' | 'tuition' | 'exam';
+    type: 'annual' | 'tuition' | 'exam' | 'admission';
     fixedDue: number | null;
     divider?: boolean;
 }
 
 const BASE_FEE_ROWS: FeeRowDef[] = [
     { key: 'Annual Fee 2026-27', label: 'Annual Fee', type: 'annual', fixedDue: ANNUAL_FEE },
+    { key: 'Admission Fee 2026-27', label: 'Admission Fee', type: 'admission', fixedDue: ADMISSION_FEE },
     { key: 'April 2026', label: 'Apr', type: 'tuition', fixedDue: null },
     { key: 'May 2026', label: 'May', type: 'tuition', fixedDue: null },
     { key: 'June 2026', label: 'Jun', type: 'tuition', fixedDue: null },
@@ -72,6 +74,7 @@ interface Student {
     address?: string; phone?: string; roll_no?: string;
     rte?: string; status?: string;
     tuition_discount?: number;
+    is_new_admission?: boolean;
 }
 interface PayRec { id?: number; created_at?: string; sr_no: number; month: string; due_amount: number; paid_amount: number; paid_on?: string; mode: string; discount?: number; }
 interface FeeStructure { class: string; monthly_fee: number; }
@@ -113,7 +116,12 @@ const StudentFeeTable: React.FC<{
     const tuition = Math.max(0, baseTuition - (student.tuition_discount || 0));
     const payMap = new Map(payments.map(p => [p.month, p]));
 
-    const rows = BASE_FEE_ROWS.map(r => {
+    // Filter out admission fee row for non-new-admission students
+    const applicableFeeRows = BASE_FEE_ROWS.filter(r =>
+        r.type !== 'admission' || student.is_new_admission === true
+    );
+
+    const rows = applicableFeeRows.map(r => {
         // RTE students have 0 due for tuition months
         const baseDue = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
         const pay = payMap.get(r.key);
@@ -130,6 +138,7 @@ const StudentFeeTable: React.FC<{
     const totalBal = totalDue - totalPaid - totalDisc;
 
     const annualRows = rows.filter(r => r.type === 'annual');
+    const admissionRows = rows.filter(r => r.type === 'admission');
     const examRows = rows.filter(r => r.type === 'exam');
     const tuitionRows = rows.filter(r => r.type === 'tuition');
 
@@ -172,6 +181,7 @@ const StudentFeeTable: React.FC<{
                     </label>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {annualRows.map(r => renderPill(r))}
+                        {admissionRows.map(r => renderPill(r))}
                     </div>
                 </div>
             )}
@@ -423,15 +433,20 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const isRTE = selected ? ['yes', 'rte'].includes((selected.rte || '').toLowerCase()) : false;
     const payMap = new Map(payments.map(p => [p.month, p]));
     
+    // Filter fee rows applicable to this student (exclude admission for non-new-admission)
+    const applicableFeeRows = BASE_FEE_ROWS.filter(r =>
+        r.type !== 'admission' || selected?.is_new_admission === true
+    );
     const itemsToCollect = Array.from(selectedKeys).map(k => {
-        const r = BASE_FEE_ROWS.find(x => x.key === k)!;
+        const r = applicableFeeRows.find(x => x.key === k)!;
+        if (!r) return null;
         const pay = payMap.get(r.key);
         const baseDue = r.fixedDue !== null ? r.fixedDue : (isRTE && r.type === 'tuition' ? 0 : tuition);
         const due = pay?.due_amount !== undefined ? pay.due_amount : baseDue;
         const paid = pay?.paid_amount || 0;
         const disc = pay?.discount || 0;
         return { def: r, due, paid, disc };
-    }).filter(x => (x.due - x.disc) > x.paid);
+    }).filter((x): x is NonNullable<typeof x> => x !== null && (x.due - x.disc) > x.paid);
 
     const otherFee = Math.max(0, Number(otherFeeAmount) || 0);
     const prevDueCollectAmt = Math.max(0, Number(prevDueCollect) || 0);
@@ -467,7 +482,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
         if (!q.trim() && !cls) { setResults([]); return; }
         setSearching(true);
         const isNum = /^\d+$/.test(q.trim());
-        let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status,tuition_discount').eq('status', 'active');
+        let qb = supabase.from('students').select('sr_no,name,class,father_name,mother_name,address,phone,roll_no,rte,status,tuition_discount,is_new_admission').eq('status', 'active');
         if (cls) {
             // Use ilike and replace spaces with % to handle arbitrary spacing in the db
             qb = qb.ilike('class', cls.replace(/\s+/g, '%'));
@@ -647,15 +662,27 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
         // ── Previous Dues: distribute collected amount across oldest-first unpaid rows ──
         if (prevDueCollectAmt > 0) {
-            let prevRemaining = prevDueCollectAmt;
+            let prevToClear = prevDueCollectAmt;
+            let prevDiscountAppliedTotal = 0;
+            let prevCashAppliedTotal = 0;
             const prevUpdates: Partial<PrevDueRow>[] = [];
 
             for (const due of prevDues) {
-                if (prevRemaining <= 0) break;
+                if (prevToClear <= 0) break;
                 const bal = Math.max(0, due.due_amount - due.paid_amount - due.discount);
                 if (bal <= 0) continue;
-                const allocate = Math.min(bal, prevRemaining);
-                prevRemaining -= allocate;
+                
+                const clearAmount = Math.min(bal, prevToClear);
+                prevToClear -= clearAmount;
+
+                const applyDisc = Math.min(clearAmount, totalDiscountPool);
+                totalDiscountPool -= applyDisc;
+                prevDiscountAppliedTotal += applyDisc;
+
+                const applyCash = clearAmount - applyDisc;
+                remaining -= applyCash;
+                prevCashAppliedTotal += applyCash;
+
                 prevUpdates.push({
                     id: due.id,
                     sr_no: due.sr_no,
@@ -663,8 +690,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                     month: due.month,
                     fee_type: due.fee_type as PrevDueRow['fee_type'],
                     due_amount: due.due_amount,
-                    paid_amount: due.paid_amount + allocate,
-                    discount: due.discount,
+                    paid_amount: due.paid_amount + applyCash,
+                    discount: (due.discount || 0) + applyDisc,
                     paid_on: paymentDate,
                     mode: finalPayModeStr,
                 });
@@ -686,8 +713,8 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                 sr_no: selected.sr_no,
                 month: `Previous Dues - ${paymentDate}`,
                 due_amount: prevDueCollectAmt,
-                paid_amount: prevDueCollectAmt,
-                discount: 0,
+                paid_amount: prevCashAppliedTotal,
+                discount: prevDiscountAppliedTotal,
                 paid_on: paymentDate,
                 mode: finalPayModeStr,
             });
@@ -712,6 +739,23 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             const baseId = String(count ?? 1).padStart(5, '0');
             const receiptId = `TUF-${baseId}`;
             handlePrintReceipt(receiptId);
+
+            // Auto-clear is_new_admission if admission fee is fully paid
+            if (selected.is_new_admission) {
+                const admKey = 'Admission Fee 2026-27';
+                const admUpdate = updates.find(u => u.month === admKey);
+                if (admUpdate && (admUpdate.paid_amount + (admUpdate.discount || 0)) >= admUpdate.due_amount) {
+                    await supabase.from('students').update({ is_new_admission: false }).eq('sr_no', selected.sr_no);
+                    setSelected(prev => prev ? { ...prev, is_new_admission: false } : null);
+                } else {
+                    // Also check existing payment record
+                    const { data: admRec } = await supabase.from('fee_payments').select('*').eq('sr_no', selected.sr_no).eq('month', admKey).single();
+                    if (admRec && (admRec.paid_amount + (admRec.discount || 0)) >= admRec.due_amount) {
+                        await supabase.from('students').update({ is_new_admission: false }).eq('sr_no', selected.sr_no);
+                        setSelected(prev => prev ? { ...prev, is_new_admission: false } : null);
+                    }
+                }
+            }
 
             loadPayments(selected.sr_no);
             loadPrevDues(selected.sr_no);
