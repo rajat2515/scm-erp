@@ -4,6 +4,7 @@ import AppShell from '@/components/layout/AppShell';
 import {
     Search, CheckCircle2, AlertCircle, Trash2,
     BookOpen, Users, TrendingDown, ChevronDown, X, Loader2, Bus, Settings2, History,
+    Printer, Pencil, Ban,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import TransportFeeTab from './TransportFeeTab';
@@ -76,14 +77,15 @@ interface Student {
     tuition_discount?: number;
     is_new_admission?: boolean;
 }
-interface PayRec { id?: number; created_at?: string; sr_no: number; month: string; due_amount: number; paid_amount: number; paid_on?: string; mode: string; discount?: number; }
+interface PayRec { id?: number; created_at?: string; sr_no: number; month: string; due_amount: number; paid_amount: number; paid_on?: string; mode: string; discount?: number; receipt_no?: string; }
+interface ReceiptHeader { id: number; receipt_no: string; sr_no: number; payment_date: string; payment_mode: string; total_paid: number; total_discount: number; is_voided: boolean; voided_reason?: string; created_at: string; }
 interface FeeStructure { class: string; monthly_fee: number; }
 
 /* ─── Helpers ────────────────────────────────────────────── */
 const fmtINR = (n: number) => '₹' + n.toLocaleString('en-IN');
 
 function classToKey(cls: string) {
-    return cls.trim().replace(/s+/g, ' ').toUpperCase();
+    return cls.trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
 function monthlyFee(student: Student | null, feeStr: FeeStructure[]): number {
@@ -375,6 +377,123 @@ const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) =>
                 </div>
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ borderTop: '1px solid #000', width: 120, paddingTop: 4 }}>Cashier</div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/* ─── Edit Receipt Modal ────────────────────────────────────── */
+const EditReceiptModal: React.FC<{
+    header: ReceiptHeader;
+    onClose: () => void;
+    onSaved: () => void;
+}> = ({ header, onClose, onSaved }) => {
+    const [lines, setLines] = useState<PayRec[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [removedIds, setRemovedIds] = useState<Set<number>>(new Set());
+
+    useEffect(() => {
+        setLoading(true);
+        supabase.from('fee_payments')
+            .select('*')
+            .eq('receipt_no', header.receipt_no)
+            .then(({ data }) => { setLines(data || []); setLoading(false); });
+    }, [header.receipt_no]);
+
+    const toggleRemove = (id: number) => {
+        setRemovedIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    };
+
+    const handleSave = async () => {
+        if (removedIds.size === 0) { onClose(); return; }
+        setSaving(true);
+        // For each removed line: zero out paid_amount, discount, and unlink receipt_no
+        for (const id of removedIds) {
+            await supabase.from('fee_payments')
+                .update({ paid_amount: 0, discount: 0, receipt_no: null })
+                .eq('id', id);
+        }
+        // Recalculate header totals from remaining lines
+        const remaining = lines.filter(l => !removedIds.has(l.id!));
+        const newTotal = remaining.reduce((s, l) => s + (l.paid_amount || 0), 0);
+        const newDisc = remaining.reduce((s, l) => s + (l.discount || 0), 0);
+        if (remaining.length === 0) {
+            // All lines removed — void the header (never delete it)
+            await supabase.from('fee_receipt_headers')
+                .update({ is_voided: true, voided_reason: 'All items removed via edit', total_paid: 0, total_discount: 0 })
+                .eq('id', header.id);
+        } else {
+            await supabase.from('fee_receipt_headers')
+                .update({ total_paid: newTotal, total_discount: newDisc })
+                .eq('id', header.id);
+        }
+        setSaving(false);
+        onSaved();
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
+                    <div>
+                        <p className="font-bold text-foreground">Edit Transaction</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Receipt: <span className="font-mono font-semibold text-primary">{header.receipt_no}</span></p>
+                    </div>
+                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X className="w-4 h-4" /></button>
+                </div>
+
+                <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+                    {loading ? (
+                        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+                    ) : lines.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-6">No line items found for this receipt.</p>
+                    ) : (
+                        <>
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                ⚠️ Unchecking a line will zero out its payment and mark it as unpaid. The receipt number is preserved.
+                            </p>
+                            {lines.map(line => {
+                                const isRemoved = removedIds.has(line.id!);
+                                return (
+                                    <label key={line.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isRemoved ? 'bg-red-50 border-red-200 opacity-60' : 'bg-muted/40 border-border hover:border-primary/30'}`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={!isRemoved}
+                                            onChange={() => toggleRemove(line.id!)}
+                                            className="w-4 h-4 accent-primary"
+                                        />
+                                        <div className="flex-1">
+                                            <p className={`text-sm font-medium ${isRemoved ? 'line-through text-muted-foreground' : ''}`}>{line.month}</p>
+                                            <p className="text-xs text-muted-foreground">{new Date(line.paid_on || '').toLocaleDateString('en-GB')}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-sm font-bold text-emerald-600">₹{line.paid_amount}</p>
+                                            {(line.discount || 0) > 0 && <p className="text-xs text-purple-600">Disc: ₹{line.discount}</p>}
+                                        </div>
+                                    </label>
+                                );
+                            })}
+                        </>
+                    )}
+                </div>
+
+                <div className="px-5 py-4 border-t border-border flex justify-end gap-3 bg-muted/20">
+                    <button onClick={onClose} className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors">Cancel</button>
+                    <button
+                        onClick={handleSave}
+                        disabled={saving || loading}
+                        className="px-5 py-2 rounded-xl gradient-primary text-white text-sm font-semibold disabled:opacity-50 transition-all flex items-center gap-2"
+                    >
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        Save Changes
+                    </button>
                 </div>
             </div>
         </div>
@@ -734,10 +853,36 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             setSaving(false);
             setSaveMsg({ type: 'ok', text: 'Payment recorded successfully' });
             
-            // Auto print receipt with structured ledger count
-            const { count } = await supabase.from('fee_payments').select('*', { count: 'exact', head: true });
-            const baseId = String(count ?? 1).padStart(5, '0');
-            const receiptId = `TUF-${baseId}`;
+            // ── Generate receipt via immutable header table ──
+            // 1. Insert a stub header to claim the next auto-increment id
+            const totalPaidAmt = updates.reduce((s, u) => s + (u.paid_amount - (u as any)._prev_paid || 0), 0);
+            const { data: headerData, error: headerErr } = await supabase
+                .from('fee_receipt_headers')
+                .insert({
+                    receipt_no: 'TUF-PENDING',
+                    sr_no: selected.sr_no,
+                    payment_date: paymentDate,
+                    payment_mode: finalPayModeStr,
+                    total_paid: grandTotal,
+                    total_discount: transactionDiscount,
+                })
+                .select('id')
+                .single();
+
+            let receiptId = 'TUF-PROFORMA';
+            if (headerData && !headerErr) {
+                receiptId = `TUF-${String(headerData.id).padStart(5, '0')}`;
+                // 2. Update the header with the real receipt_no
+                await supabase.from('fee_receipt_headers')
+                    .update({ receipt_no: receiptId })
+                    .eq('id', headerData.id);
+                // 3. Tag all fee_payments rows with this receipt_no
+                const months = updates.map(u => u.month);
+                await supabase.from('fee_payments')
+                    .update({ receipt_no: receiptId })
+                    .eq('sr_no', selected.sr_no)
+                    .in('month', months);
+            }
             handlePrintReceipt(receiptId);
 
             // Auto-clear is_new_admission if admission fee is fully paid
@@ -1212,28 +1357,37 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                         const isDiscounted = disc > 0 && (p.paid_amount + disc) >= p.due_amount;
                                         const isPartial = !isDiscounted && p.paid_amount < p.due_amount;
                                         return (
-                                        <div key={p.id} className="flex justify-between items-center p-3 rounded-xl bg-muted/40 border border-border/50 text-sm">
-                                            <div>
-                                                <div className="flex items-center gap-2 py-0.5">
-                                                    <p className="font-medium">{p.month}</p>
-                                                    {isDiscounted && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">Discounted</span>}
-                                                    {isPartial && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">Partial</span>}
+                                        <div key={p.id} className="p-3 rounded-xl bg-muted/40 border border-border/50 text-sm space-y-1.5">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <p className="font-medium">{p.month}</p>
+                                                        {isDiscounted && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700 border border-purple-200">Discounted</span>}
+                                                        {isPartial && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">Partial</span>}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                                                        <span>{new Date(p.paid_on || p.created_at || '').toLocaleDateString()}</span>
+                                                        <span className="w-1 h-1 rounded-full bg-border"></span>
+                                                        <span className="uppercase">{p.mode}</span>
+                                                        {disc > 0 && <><span className="w-1 h-1 rounded-full bg-border"></span><span className="text-purple-600 font-medium">Disc: {fmtINR(disc)}</span></>}
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                    <span>{new Date(p.paid_on || p.created_at || '').toLocaleDateString()}</span>
-                                                    <span className="w-1 h-1 rounded-full bg-border"></span>
-                                                    <span className="uppercase">{p.mode}</span>
-                                                    {disc > 0 && <><span className="w-1 h-1 rounded-full bg-border"></span><span className="text-purple-600 font-medium">Disc: {fmtINR(disc)}</span></>}
+                                                <div className="text-right flex items-center gap-2">
+                                                    <p className="font-bold text-emerald-600">{fmtINR(p.paid_amount)}</p>
+                                                    {p.receipt_no && (
+                                                        <button
+                                                            onClick={() => handlePrintReceipt(p.receipt_no)}
+                                                            className="p-1.5 text-primary/60 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                                            title={`Reprint ${p.receipt_no}`}
+                                                        >
+                                                            <Printer className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <div className="text-right flex items-center justify-end gap-3">
-                                                <p className="font-bold text-emerald-600">{fmtINR(p.paid_amount)}</p>
-                                                {p.id && (
-                                                    <button onClick={() => handleDeleteReceipt(p.id!)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete payment">
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                )}
-                                            </div>
+                                            {p.receipt_no && (
+                                                <p className="text-[10px] font-mono text-muted-foreground/70">🧾 {p.receipt_no}</p>
+                                            )}
                                         </div>
                                         );
                                     })}
@@ -1252,178 +1406,162 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
 /* ─── Ledger Tab ─────────────────────────────────────────── */
 const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
-    const [payments, setPayments] = useState<any[]>([]);
+    const [headers, setHeaders] = useState<(ReceiptHeader & { student_name: string; student_class: string })[]>([]);
     const [loading, setLoading] = useState(true);
-    const [monthFilter, setMonthFilter] = useState('All');
     const [classFilter, setClassFilter] = useState('');
     const [search, setSearch] = useState('');
+    const [editTarget, setEditTarget] = useState<ReceiptHeader | null>(null);
 
-    const ALL_MONTHS = BASE_FEE_ROWS.map(r => r.key);
+    // For reprint from ledger
+    const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
 
     const loadRecords = async () => {
         setLoading(true);
-        let q = supabase.from('fee_payments').select(`*, students${classFilter ? '!inner' : ''}(name,class)`).order('created_at', { ascending: false }).range(0, 999);
-        if (monthFilter !== 'All') q = q.eq('month', monthFilter);
-        if (classFilter) q = q.eq('students.class', classFilter);
+        let q = supabase
+            .from('fee_receipt_headers')
+            .select(`*, students${classFilter ? '!inner' : ''}(name,class)`)
+            .order('id', { ascending: false })
+            .range(0, 499);
+        if (classFilter) q = (q as any).eq('students.class', classFilter);
         const { data } = await q;
-        setPayments((data || []).map((p: any) => ({ ...p, student_name: p.students?.name || '', student_class: p.students?.class || '' })));
+        setHeaders((data || []).map((h: any) => ({
+            ...h,
+            student_name: h.students?.name || '',
+            student_class: h.students?.class || '',
+        })));
         setLoading(false);
     };
 
-    useEffect(() => {
-        loadRecords();
-    }, [monthFilter, classFilter, refresh]);
+    useEffect(() => { loadRecords(); }, [classFilter, refresh]);
 
-    const handleDelete = async (p: any) => {
+    const handleReprint = async (header: ReceiptHeader & { student_name: string; student_class: string }) => {
+        // Load linked fee_payments lines for this receipt
+        const { data: lines } = await supabase.from('fee_payments').select('*').eq('receipt_no', header.receipt_no);
+        if (!lines || lines.length === 0) { Swal.fire('Info', 'No line items linked to this receipt.', 'info'); return; }
+        const student: Student = { sr_no: header.sr_no, name: header.student_name, class: header.student_class };
+        const items = lines.map((l: any) => ({ label: l.month, amount: l.paid_amount }));
+        const receipt: FeeReceiptData = {
+            student,
+            items,
+            subtotal: header.total_paid + header.total_discount,
+            discount: header.total_discount,
+            grandTotal: header.total_paid,
+            receiptNo: header.receipt_no,
+            paymentDate: header.payment_date,
+            paymentMode: header.payment_mode,
+            paymentType: 'FULL PAYMENT',
+        };
+        setPrintData(receipt);
+        setTimeout(() => {
+            const area = document.getElementById('fee-receipt-print-area');
+            if (!area) return;
+            area.style.display = 'block';
+            const cleanup = () => { area.style.display = 'none'; window.removeEventListener('afterprint', cleanup); };
+            window.addEventListener('afterprint', cleanup);
+            window.print();
+        }, 150);
+    };
+
+    const handleVoid = async (header: ReceiptHeader) => {
         const result = await Swal.fire({
-            title: 'Delete payment record?',
-            text: 'Are you sure you want to delete this payment record?',
+            title: 'Void this receipt?',
+            html: `Receipt <b>${header.receipt_no}</b> will be voided and all linked payments zeroed. This cannot be undone.`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: 'Yes, void it',
         });
-
-        if (result.isConfirmed) {
-            setLoading(true);
-            let error;
-            if (p.id) {
-                ({ error } = await supabase.from('fee_payments').delete().eq('id', p.id));
-            }
-            // Fallback: delete by sr_no + month if id-based delete failed or id was missing
-            if (!p.id || error) {
-                ({ error } = await supabase.from('fee_payments').delete().eq('sr_no', p.sr_no).eq('month', p.month));
-            }
-            if (error) {
-                Swal.fire('Error!', 'Failed to delete transaction: ' + error.message, 'error');
-                setLoading(false);
-            } else {
-                // If this was a Previous Dues summary row, reverse the paid_amount in previous_year_dues
-                if (String(p.month).startsWith('Previous Dues')) {
-                    const amountToReverse = p.paid_amount as number;
-                    const { data: pDues } = await supabase
-                        .from('previous_year_dues')
-                        .select('*')
-                        .eq('sr_no', p.sr_no)
-                        .order('academic_year', { ascending: false })
-                        .order('month', { ascending: false });
-
-                    if (pDues && pDues.length > 0) {
-                        let toReverse = amountToReverse;
-                        const reversals: any[] = [];
-                        for (const due of pDues as any[]) {
-                            if (toReverse <= 0) break;
-                            if (due.paid_amount <= 0) continue;
-                            const deduct = Math.min(due.paid_amount, toReverse);
-                            toReverse -= deduct;
-                            reversals.push({
-                                id: due.id,
-                                sr_no: due.sr_no,
-                                academic_year: due.academic_year,
-                                month: due.month,
-                                fee_type: due.fee_type,
-                                due_amount: due.due_amount,
-                                paid_amount: Math.max(0, due.paid_amount - deduct),
-                                discount: due.discount,
-                            });
-                        }
-                        if (reversals.length > 0) {
-                            await supabase.from('previous_year_dues').upsert(reversals, { onConflict: 'sr_no,academic_year,month' });
-                        }
-                    }
-                }
-                Swal.fire('Deleted!', 'Payment record has been removed.', 'success');
-                loadRecords();
-            }
+        if (!result.isConfirmed) return;
+        // Zero out all linked fee_payments rows
+        const { data: lines } = await supabase.from('fee_payments').select('id').eq('receipt_no', header.receipt_no);
+        for (const line of (lines || [])) {
+            await supabase.from('fee_payments').update({ paid_amount: 0, discount: 0, receipt_no: null }).eq('id', (line as any).id);
         }
+        await supabase.from('fee_receipt_headers')
+            .update({ is_voided: true, voided_reason: 'Manually voided', total_paid: 0, total_discount: 0 })
+            .eq('id', header.id);
+        Swal.fire('Voided', `Receipt ${header.receipt_no} has been voided.`, 'success');
+        loadRecords();
     };
 
-    const filtered = payments.filter(p => {
+    const filtered = headers.filter(h => {
         const q = search.toLowerCase();
-        return !q || p.student_name.toLowerCase().includes(q) || String(p.sr_no).includes(q);
+        return !q || h.student_name.toLowerCase().includes(q) || String(h.sr_no).includes(q) || h.receipt_no.toLowerCase().includes(q);
     });
 
-    const col = filtered.reduce((s, p) => s + p.paid_amount, 0);
-    const due = filtered.reduce((s, p) => s + p.due_amount, 0);
+    const totalCollected = filtered.filter(h => !h.is_voided).reduce((s, h) => s + (h.total_paid || 0), 0);
 
     return (
         <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-                {[
-                    { label: 'Collected', value: fmtINR(col), cls: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
-                    { label: 'Total Due', value: fmtINR(due), cls: 'text-foreground', bg: 'bg-card border-border' },
-                    { label: 'Pending', value: fmtINR(due - col), cls: 'text-red-600', bg: 'bg-red-50 border-red-200' },
-                ].map(c => (
-                    <div key={c.label} className={`p-3 rounded-xl border ${c.bg} text-center`}>
-                        <p className={`text-lg font-bold ${c.cls}`}>{c.value}</p>
-                        <p className="text-xs text-muted-foreground">{c.label}</p>
+            {/* Print area for reprint from ledger */}
+            <PrintFeeReceipt data={printData} />
+
+            <div className="flex items-center justify-between">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-center">
+                    <p className="text-lg font-bold text-emerald-600">{fmtINR(totalCollected)}</p>
+                    <p className="text-xs text-muted-foreground">Total Collected (shown)</p>
+                </div>
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, SR, or receipt no…"
+                            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
                     </div>
-                ))}
-            </div>
-            <div className="flex gap-2">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SR…"
-                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                </div>
-                <div className="relative">
-                    <select value={classFilter} onChange={e => setClassFilter(e.target.value)}
-                        className="pl-3 pr-8 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none appearance-none">
-                        <option value="">All Classes</option>
-                        {CLASSES.slice(1).map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                </div>
-                <div className="relative">
-                    <select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}
-                        className="pl-3 pr-8 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none appearance-none max-w-[150px] truncate">
-                        <option value="All">All Items</option>
-                        {ALL_MONTHS.map(m => <option key={m}>{m}</option>)}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                    <div className="relative">
+                        <select value={classFilter} onChange={e => setClassFilter(e.target.value)}
+                            className="pl-3 pr-8 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none appearance-none">
+                            <option value="">All Classes</option>
+                            {CLASSES.slice(1).map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                    </div>
                 </div>
             </div>
+
             <div className="bg-card border border-border rounded-2xl overflow-hidden">
                 {loading ? (
                     <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
                 ) : filtered.length === 0 ? (
-                    <div className="text-center py-16 text-muted-foreground text-sm">No records found</div>
+                    <div className="text-center py-16 text-muted-foreground text-sm">No receipts found</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-border bg-muted/30">
-                                    {['Date', 'Student', 'Fee Item', 'Due', 'Paid', 'Mode', 'Status', 'Actions'].map(h => (
-                                        <th key={h} className={`px-4 py-3 font-medium text-muted-foreground ${['Due', 'Paid'].includes(h) ? 'text-right' : h === 'Status' || h === 'Mode' ? 'text-center' : h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
+                                    {['Receipt No', 'Date', 'Student', 'Total Paid', 'Discount', 'Mode', 'Status', 'Actions'].map(h => (
+                                        <th key={h} className={`px-4 py-3 font-medium text-muted-foreground ${['Total Paid', 'Discount'].includes(h) ? 'text-right' : h === 'Status' ? 'text-center' : h === 'Actions' ? 'text-right' : 'text-left'}`}>{h}</th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
-                                {filtered.map(p => (
-                                    <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                                {filtered.map(h => (
+                                    <tr key={h.id} className={`transition-colors ${h.is_voided ? 'bg-red-50/50 opacity-60' : 'hover:bg-muted/20'}`}>
+                                        <td className="px-4 py-2.5 font-mono font-semibold text-primary text-xs">{h.receipt_no}</td>
                                         <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                                            {new Date(p.paid_on || p.created_at || '').toLocaleDateString('en-GB')}
+                                            {new Date(h.payment_date).toLocaleDateString('en-GB')}
                                         </td>
                                         <td className="px-4 py-2.5">
-                                            <p className="font-medium">{p.student_name}</p>
-                                            <p className="text-xs text-muted-foreground">SR {p.sr_no} · {p.student_class}</p>
+                                            <p className="font-medium">{h.student_name}</p>
+                                            <p className="text-xs text-muted-foreground">SR {h.sr_no} · {h.student_class}</p>
                                         </td>
-                                        <td className="px-4 py-2.5 text-muted-foreground text-xs">{p.month}</td>
-                                        <td className="px-4 py-2.5 text-right">{fmtINR(p.due_amount)}</td>
-                                        <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{fmtINR(p.paid_amount)}</td>
-                                        <td className="px-4 py-2.5 text-center capitalize text-xs text-muted-foreground">{p.mode}</td>
+                                        <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{fmtINR(h.total_paid)}</td>
+                                        <td className="px-4 py-2.5 text-right text-purple-600 text-xs">{h.total_discount > 0 ? fmtINR(h.total_discount) : '—'}</td>
+                                        <td className="px-4 py-2.5 capitalize text-xs text-muted-foreground">{h.payment_mode}</td>
                                         <td className="px-4 py-2.5 text-center">
-                                            {(p.paid_amount + (p.discount || 0)) >= p.due_amount
-                                                ? (p.discount || 0) > 0
-                                                    ? <span className="px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700 border border-purple-200 font-semibold">Discounted</span>
-                                                    : <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Paid</span>
-                                                : p.paid_amount > 0
-                                                    ? <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 border border-amber-200 font-semibold">Partial</span>
-                                                    : <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 border border-red-200 font-semibold">Unpaid</span>}
+                                            {h.is_voided
+                                                ? <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 border border-red-200 font-semibold">Voided</span>
+                                                : <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Active</span>}
                                         </td>
                                         <td className="px-4 py-2.5 text-right">
-                                            <button onClick={() => handleDelete(p)} className="p-1.5 text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-colors" title="Delete record"><Trash2 className="w-4 h-4" /></button>
+                                            <div className="flex items-center justify-end gap-1">
+                                                {!h.is_voided && (
+                                                    <>
+                                                        <button onClick={() => setEditTarget(h)} className="p-1.5 text-blue-500 hover:bg-blue-50 border border-transparent hover:border-blue-100 rounded-lg transition-colors" title="Edit transaction"><Pencil className="w-3.5 h-3.5" /></button>
+                                                        <button onClick={() => handleReprint(h)} className="p-1.5 text-primary/70 hover:bg-primary/10 border border-transparent hover:border-primary/20 rounded-lg transition-colors" title="Reprint receipt"><Printer className="w-3.5 h-3.5" /></button>
+                                                        <button onClick={() => handleVoid(h)} className="p-1.5 text-red-400 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-colors" title="Void receipt"><Ban className="w-3.5 h-3.5" /></button>
+                                                    </>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -1432,6 +1570,15 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                     </div>
                 )}
             </div>
+
+            {/* Edit Modal */}
+            {editTarget && (
+                <EditReceiptModal
+                    header={editTarget}
+                    onClose={() => setEditTarget(null)}
+                    onSaved={() => { loadRecords(); setEditTarget(null); }}
+                />
+            )}
         </div>
     );
 };
