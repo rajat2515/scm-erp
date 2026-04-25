@@ -277,8 +277,26 @@ const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) =>
     if (!data) return null;
 
     return (
-        <div id="fee-receipt-print-area" style={{ display: 'none', fontFamily: 'Arial, sans-serif', padding: '8mm 12mm', color: '#000', background: '#fff' }}>
-            {/* School Header */}
+        <>
+            <style>{`
+                @page { size: A5 portrait; margin: 10mm; }
+                @media print {
+                    body * { visibility: hidden !important; }
+                    #fee-receipt-print-area, #fee-receipt-print-area * { visibility: visible !important; }
+                    #fee-receipt-print-area { 
+                        position: absolute !important; 
+                        left: 0 !important; 
+                        top: 0 !important; 
+                        width: 148mm !important; 
+                        display: block !important; 
+                        background: #fff !important;
+                        -webkit-print-color-adjust: exact !important; 
+                        print-color-adjust: exact !important; 
+                    }
+                }
+            `}</style>
+            <div id="fee-receipt-print-area" style={{ display: 'none', fontFamily: 'Arial, sans-serif', padding: '8mm 12mm', color: '#000', background: '#fff', width: '148mm', margin: '0 auto' }}>
+                {/* School Header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: '2px solid #000', paddingBottom: 8, marginBottom: 10 }}>
                 <img src="/school-logo.png" alt="Logo" style={{ width: 60, height: 60, objectFit: 'contain' }} />
                 <div style={{ flex: 1, textAlign: 'center' }}>
@@ -379,124 +397,8 @@ const PrintFeeReceipt: React.FC<{ data: FeeReceiptData | null }> = ({ data }) =>
                     <div style={{ borderTop: '1px solid #000', width: 120, paddingTop: 4 }}>Cashier</div>
                 </div>
             </div>
-        </div>
-    );
-};
-
-/* ─── Edit Receipt Modal ────────────────────────────────────── */
-const EditReceiptModal: React.FC<{
-    header: ReceiptHeader;
-    onClose: () => void;
-    onSaved: () => void;
-}> = ({ header, onClose, onSaved }) => {
-    const [lines, setLines] = useState<PayRec[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [removedIds, setRemovedIds] = useState<Set<number>>(new Set());
-
-    useEffect(() => {
-        setLoading(true);
-        supabase.from('fee_payments')
-            .select('*')
-            .eq('receipt_no', header.receipt_no)
-            .then(({ data }) => { setLines(data || []); setLoading(false); });
-    }, [header.receipt_no]);
-
-    const toggleRemove = (id: number) => {
-        setRemovedIds(prev => {
-            const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
-            return next;
-        });
-    };
-
-    const handleSave = async () => {
-        if (removedIds.size === 0) { onClose(); return; }
-        setSaving(true);
-        // For each removed line: zero out paid_amount, discount, and unlink receipt_no
-        for (const id of removedIds) {
-            await supabase.from('fee_payments')
-                .update({ paid_amount: 0, discount: 0, receipt_no: null })
-                .eq('id', id);
-        }
-        // Recalculate header totals from remaining lines
-        const remaining = lines.filter(l => !removedIds.has(l.id!));
-        const newTotal = remaining.reduce((s, l) => s + (l.paid_amount || 0), 0);
-        const newDisc = remaining.reduce((s, l) => s + (l.discount || 0), 0);
-        if (remaining.length === 0) {
-            // All lines removed — void the header (never delete it)
-            await supabase.from('fee_receipt_headers')
-                .update({ is_voided: true, voided_reason: 'All items removed via edit', total_paid: 0, total_discount: 0 })
-                .eq('id', header.id);
-        } else {
-            await supabase.from('fee_receipt_headers')
-                .update({ total_paid: newTotal, total_discount: newDisc })
-                .eq('id', header.id);
-        }
-        setSaving(false);
-        onSaved();
-        onClose();
-    };
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/30">
-                    <div>
-                        <p className="font-bold text-foreground">Edit Transaction</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Receipt: <span className="font-mono font-semibold text-primary">{header.receipt_no}</span></p>
-                    </div>
-                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X className="w-4 h-4" /></button>
-                </div>
-
-                <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
-                    {loading ? (
-                        <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
-                    ) : lines.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-6">No line items found for this receipt.</p>
-                    ) : (
-                        <>
-                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                                ⚠️ Unchecking a line will zero out its payment and mark it as unpaid. The receipt number is preserved.
-                            </p>
-                            {lines.map(line => {
-                                const isRemoved = removedIds.has(line.id!);
-                                return (
-                                    <label key={line.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${isRemoved ? 'bg-red-50 border-red-200 opacity-60' : 'bg-muted/40 border-border hover:border-primary/30'}`}>
-                                        <input
-                                            type="checkbox"
-                                            checked={!isRemoved}
-                                            onChange={() => toggleRemove(line.id!)}
-                                            className="w-4 h-4 accent-primary"
-                                        />
-                                        <div className="flex-1">
-                                            <p className={`text-sm font-medium ${isRemoved ? 'line-through text-muted-foreground' : ''}`}>{line.month}</p>
-                                            <p className="text-xs text-muted-foreground">{new Date(line.paid_on || '').toLocaleDateString('en-GB')}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-sm font-bold text-emerald-600">₹{line.paid_amount}</p>
-                                            {(line.discount || 0) > 0 && <p className="text-xs text-purple-600">Disc: ₹{line.discount}</p>}
-                                        </div>
-                                    </label>
-                                );
-                            })}
-                        </>
-                    )}
-                </div>
-
-                <div className="px-5 py-4 border-t border-border flex justify-end gap-3 bg-muted/20">
-                    <button onClick={onClose} className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-colors">Cancel</button>
-                    <button
-                        onClick={handleSave}
-                        disabled={saving || loading}
-                        className="px-5 py-2 rounded-xl gradient-primary text-white text-sm font-semibold disabled:opacity-50 transition-all flex items-center gap-2"
-                    >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                        Save Changes
-                    </button>
-                </div>
             </div>
-        </div>
+        </>
     );
 };
 
@@ -515,7 +417,7 @@ interface PrevDueRow {
 }
 
 /* ─── Collect Fee Tab ────────────────────────────────────── */
-const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
+const CollectFeeTab: React.FC<{ feeStr: FeeStructure[], editReceipt?: ReceiptHeader | null, onCancelEdit?: () => void }> = ({ feeStr, editReceipt, onCancelEdit }) => {
     const [query, setQuery] = useState('');
     const [classFilter, setClassFilter] = useState('');
     const [results, setResults] = useState<Student[]>([]);
@@ -550,7 +452,13 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
     const baseTuition = selected ? monthlyFee(selected, feeStr) : 0;
     const tuition = Math.max(0, baseTuition - (Number(studentDiscount) || 0));
     const isRTE = selected ? ['yes', 'rte'].includes((selected.rte || '').toLowerCase()) : false;
-    const payMap = new Map(payments.map(p => [p.month, p]));
+    
+    // Ignore payments belonging to the receipt currently being edited
+    const activePayments = editReceipt 
+        ? payments.filter(p => p.receipt_no !== editReceipt.receipt_no) 
+        : payments;
+        
+    const payMap = new Map(activePayments.map(p => [p.month, p]));
     
     // Filter fee rows applicable to this student (exclude admission for non-new-admission)
     const applicableFeeRows = BASE_FEE_ROWS.filter(r =>
@@ -639,6 +547,70 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             .order('month', { ascending: true });
         setPrevDues((data as PrevDueRow[]) || []);
     }, []);
+
+    // HYDRATION LOGIC FOR EDIT MODE
+    useEffect(() => {
+        if (!editReceipt) return;
+        
+        const hydrate = async () => {
+            setSaving(true);
+            const { data: sData } = await supabase.from('students').select('*').eq('sr_no', editReceipt.sr_no).single();
+            if (!sData) {
+                setSaving(false); return;
+            }
+            
+            const { data: pData } = await supabase.from('fee_payments').select('*').eq('receipt_no', editReceipt.receipt_no);
+            const rLines = pData || [];
+            
+            setSelected(sData);
+            setQuery(sData.name);
+            setResults([]);
+            setSaveMsg(null);
+            setStudentDiscount(String(sData.tuition_discount || 0));
+            setDiscountInput(String(editReceipt.total_discount || 0));
+            setPayAmount(String(editReceipt.total_paid || 0));
+            setPaymentDate(editReceipt.payment_date || new Date().toISOString().split('T')[0]);
+            
+            if (editReceipt.payment_mode.startsWith('Split')) {
+                setPayMode('split');
+                const cashMatch = editReceipt.payment_mode.match(/Cash: ₹([\\d.]+)/);
+                const onlineMatch = editReceipt.payment_mode.match(/Online: ₹([\\d.]+)/);
+                const chequeMatch = editReceipt.payment_mode.match(/Cheque: ₹([\\d.]+)/);
+                if (cashMatch) setSplitCash(cashMatch[1]);
+                if (onlineMatch) setSplitOnline(onlineMatch[1]);
+                if (chequeMatch) setSplitCheque(chequeMatch[1]);
+            } else {
+                setPayMode(editReceipt.payment_mode as any);
+            }
+
+            const keys = new Set<string>();
+            let oFee = '';
+            let oReason = '';
+            let pDue = '';
+
+            for (const l of rLines) {
+                if (l.month.startsWith('Other: ')) {
+                    oFee = String(l.paid_amount);
+                    oReason = l.month.replace('Other: ', '').split(' - ')[0];
+                } else if (l.month.startsWith('Previous Dues - ')) {
+                    pDue = String(l.paid_amount);
+                } else {
+                    keys.add(l.month);
+                }
+            }
+
+            setOtherFeeAmount(oFee);
+            setOtherFeeReason(oReason);
+            setPrevDueCollect(pDue);
+            setSelectedKeys(keys);
+
+            await loadPayments(sData.sr_no);
+            await loadPrevDues(sData.sr_no);
+            
+            setSaving(false);
+        };
+        hydrate();
+    }, [editReceipt, loadPayments, loadPrevDues]);
 
     const pickStudent = (s: Student) => {
         setSelected(s);
@@ -737,6 +709,31 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
         setSaving(true);
         setSaveMsg(null);
+
+        // If editing, reverse old previous dues and delete old payments first
+        if (editReceipt) {
+            const { data: recData } = await supabase.from('fee_payments').select('*').eq('receipt_no', editReceipt.receipt_no).ilike('month', 'Previous Dues%').single();
+            if (recData && recData.paid_amount > 0) {
+                const amountToReverse = recData.paid_amount as number;
+                const { data: pDues } = await supabase.from('previous_year_dues').select('*').eq('sr_no', selected.sr_no).order('academic_year', { ascending: false }).order('month', { ascending: false });
+                if (pDues && pDues.length > 0) {
+                    let toReverse = amountToReverse;
+                    const reversals: Partial<PrevDueRow>[] = [];
+                    for (const due of pDues as PrevDueRow[]) {
+                        if (toReverse <= 0) break;
+                        if (due.paid_amount <= 0) continue;
+                        const deduct = Math.min(due.paid_amount, toReverse);
+                        toReverse -= deduct;
+                        reversals.push({
+                            id: due.id, sr_no: due.sr_no, academic_year: due.academic_year, month: due.month, fee_type: due.fee_type,
+                            due_amount: due.due_amount, paid_amount: Math.max(0, due.paid_amount - deduct), discount: due.discount
+                        });
+                    }
+                    if (reversals.length > 0) await supabase.from('previous_year_dues').upsert(reversals, { onConflict: 'sr_no,academic_year,month' });
+                }
+            }
+            await supabase.from('fee_payments').delete().eq('receipt_no', editReceipt.receipt_no);
+        }
 
         let totalDiscountPool = transactionDiscount;
 
@@ -854,28 +851,58 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             setSaveMsg({ type: 'ok', text: 'Payment recorded successfully' });
             
             // ── Generate receipt via immutable header table ──
-            // 1. Insert a stub header to claim the next auto-increment id
-            const totalPaidAmt = updates.reduce((s, u) => s + (u.paid_amount - (u as any)._prev_paid || 0), 0);
-            const { data: headerData, error: headerErr } = await supabase
-                .from('fee_receipt_headers')
-                .insert({
-                    receipt_no: 'TUF-PENDING',
-                    sr_no: selected.sr_no,
-                    payment_date: paymentDate,
-                    payment_mode: finalPayModeStr,
-                    total_paid: grandTotal,
-                    total_discount: transactionDiscount,
-                })
-                .select('id')
-                .single();
+            let headerData: { id: number } | null = null;
+            let headerErr = null;
+            
+            if (editReceipt) {
+                // Edit mode: just update the existing header
+                const { data, error } = await supabase
+                    .from('fee_receipt_headers')
+                    .update({
+                        payment_date: paymentDate,
+                        payment_mode: finalPayModeStr,
+                        total_paid: grandTotal,
+                        total_discount: transactionDiscount,
+                    })
+                    .eq('id', editReceipt.id)
+                    .select('id')
+                    .single();
+                headerData = data;
+                headerErr = error;
+            } else {
+                // 1. Insert a stub header to claim the next auto-increment id
+                const tempReceiptNo = `PENDING-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                const { data, error } = await supabase
+                    .from('fee_receipt_headers')
+                    .insert({
+                        receipt_no: tempReceiptNo,
+                        sr_no: selected.sr_no,
+                        payment_date: paymentDate,
+                        payment_mode: finalPayModeStr,
+                        total_paid: grandTotal,
+                        total_discount: transactionDiscount,
+                    })
+                    .select('id')
+                    .single();
+                headerData = data;
+                headerErr = error;
+            }
+
+            if (headerErr) {
+                console.error("Header creation error:", headerErr);
+                Swal.fire('Warning', 'Payment saved, but failed to generate receipt number: ' + headerErr.message, 'warning');
+            }
 
             let receiptId = 'TUF-PROFORMA';
             if (headerData && !headerErr) {
-                receiptId = `TUF-${String(headerData.id).padStart(5, '0')}`;
-                // 2. Update the header with the real receipt_no
-                await supabase.from('fee_receipt_headers')
-                    .update({ receipt_no: receiptId })
-                    .eq('id', headerData.id);
+                receiptId = editReceipt ? editReceipt.receipt_no : `TUF-${String(headerData.id).padStart(5, '0')}`;
+                
+                if (!editReceipt) {
+                    // 2. Update the header with the real receipt_no
+                    await supabase.from('fee_receipt_headers')
+                        .update({ receipt_no: receiptId })
+                        .eq('id', headerData.id);
+                }
                 // 3. Tag all fee_payments rows with this receipt_no
                 const months = updates.map(u => u.month);
                 await supabase.from('fee_payments')
@@ -910,6 +937,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
             setOtherFeeAmount('');
             setOtherFeeReason('');
             setPrevDueCollect('');
+            if (editReceipt && onCancelEdit) onCancelEdit();
         } else {
             setSaving(false);
         }
@@ -981,14 +1009,6 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 
     return (
         <div className="space-y-5 print:space-y-0">
-            <style>{`
-                @page { size: A5 portrait; margin: 10mm; }
-                @media print {
-                    body * { visibility: hidden; }
-                    #fee-receipt-print-area, #fee-receipt-print-area * { visibility: visible !important; }
-                    #fee-receipt-print-area { position: absolute; left: 0; top: 0; width: 100%; display: block !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                }
-            `}</style>
 
 
             <div className={`grid grid-cols-1 ${selected ? 'lg:grid-cols-12' : ''} gap-6 max-w-7xl mx-auto print:hidden animate-fade-in`}>
@@ -1167,6 +1187,18 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                 {selectedKeys.size > 0 && <span className="bg-primary/10 text-primary text-xs px-2 py-0.5 rounded-md border border-primary/20">{selectedKeys.size} Selected</span>}
                             </h3>
 
+                            {editReceipt && (
+                                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                                    <div>
+                                        <p className="text-xs font-bold text-amber-900">Editing {editReceipt.receipt_no}</p>
+                                        <p className="text-[10px] text-amber-700">Changes will overwrite this receipt.</p>
+                                    </div>
+                                    <button onClick={onCancelEdit} className="px-2 py-1 bg-amber-200 hover:bg-amber-300 rounded text-[10px] font-bold text-amber-900 transition-colors">
+                                        Cancel
+                                    </button>
+                                </div>
+                            )}
+
 
 
                             {/* Previous Dues Alert Banner */}
@@ -1337,7 +1369,7 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
                                 >
                                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                                     {!saving && <span>₹</span>}
-                                    {saving ? 'Recording…' : 'Record Payment'}
+                                    {saving ? (editReceipt ? 'Updating…' : 'Recording…') : (editReceipt ? 'Update Payment' : 'Record Payment')}
                                 </button>
                             </div>
 
@@ -1405,15 +1437,11 @@ const CollectFeeTab: React.FC<{ feeStr: FeeStructure[] }> = ({ feeStr }) => {
 };
 
 /* ─── Ledger Tab ─────────────────────────────────────────── */
-const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
+const LedgerTab: React.FC<{ refresh: number; onPrint: (data: FeeReceiptData) => void; onEditReceipt: (h: ReceiptHeader) => void }> = ({ refresh, onPrint, onEditReceipt }) => {
     const [headers, setHeaders] = useState<(ReceiptHeader & { student_name: string; student_class: string })[]>([]);
     const [loading, setLoading] = useState(true);
     const [classFilter, setClassFilter] = useState('');
     const [search, setSearch] = useState('');
-    const [editTarget, setEditTarget] = useState<ReceiptHeader | null>(null);
-
-    // For reprint from ledger
-    const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
 
     const loadRecords = async () => {
         setLoading(true);
@@ -1451,15 +1479,7 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
             paymentMode: header.payment_mode,
             paymentType: 'FULL PAYMENT',
         };
-        setPrintData(receipt);
-        setTimeout(() => {
-            const area = document.getElementById('fee-receipt-print-area');
-            if (!area) return;
-            area.style.display = 'block';
-            const cleanup = () => { area.style.display = 'none'; window.removeEventListener('afterprint', cleanup); };
-            window.addEventListener('afterprint', cleanup);
-            window.print();
-        }, 150);
+        onPrint(receipt);
     };
 
     const handleVoid = async (header: ReceiptHeader) => {
@@ -1493,9 +1513,6 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
 
     return (
         <div className="space-y-4">
-            {/* Print area for reprint from ledger */}
-            <PrintFeeReceipt data={printData} />
-
             <div className="flex items-center justify-between">
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-center">
                     <p className="text-lg font-bold text-emerald-600">{fmtINR(totalCollected)}</p>
@@ -1556,7 +1573,7 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                                             <div className="flex items-center justify-end gap-1">
                                                 {!h.is_voided && (
                                                     <>
-                                                        <button onClick={() => setEditTarget(h)} className="p-1.5 text-blue-500 hover:bg-blue-50 border border-transparent hover:border-blue-100 rounded-lg transition-colors" title="Edit transaction"><Pencil className="w-3.5 h-3.5" /></button>
+                                                        <button onClick={() => onEditReceipt(h as unknown as ReceiptHeader)} className="p-1.5 text-blue-500 hover:bg-blue-50 border border-transparent hover:border-blue-100 rounded-lg transition-colors" title="Edit transaction"><Pencil className="w-3.5 h-3.5" /></button>
                                                         <button onClick={() => handleReprint(h)} className="p-1.5 text-primary/70 hover:bg-primary/10 border border-transparent hover:border-primary/20 rounded-lg transition-colors" title="Reprint receipt"><Printer className="w-3.5 h-3.5" /></button>
                                                         <button onClick={() => handleVoid(h)} className="p-1.5 text-red-400 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-colors" title="Void receipt"><Ban className="w-3.5 h-3.5" /></button>
                                                     </>
@@ -1571,14 +1588,7 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
                 )}
             </div>
 
-            {/* Edit Modal */}
-            {editTarget && (
-                <EditReceiptModal
-                    header={editTarget}
-                    onClose={() => setEditTarget(null)}
-                    onSaved={() => { loadRecords(); setEditTarget(null); }}
-                />
-            )}
+            {/* Edit Modal Removed (now redirects to Collect Tab) */}
         </div>
     );
 };
@@ -1587,9 +1597,30 @@ const LedgerTab: React.FC<{ refresh: number }> = ({ refresh }) => {
 /* ─── Tuition Fee Tab (Merged) ─────────────────────────────── */
 const TuitionFeeTab: React.FC<{ feeStr: FeeStructure[]; refresh: number }> = ({ feeStr, refresh }) => {
     const [activeTab, setActiveTab] = useState<'collect' | 'ledger'>('collect');
-    
+    const [printData, setPrintData] = useState<FeeReceiptData | null>(null);
+    const [editReceipt, setEditReceipt] = useState<ReceiptHeader | null>(null);
+
+    const handlePrintReceipt = (data: FeeReceiptData) => {
+        setPrintData(data);
+        setTimeout(() => {
+            const area = document.getElementById('fee-receipt-print-area');
+            if (!area) return;
+            area.style.display = 'block';
+            const cleanup = () => { 
+                area.style.display = 'none'; 
+                window.removeEventListener('afterprint', cleanup);
+                setPrintData(null); // Unmount so styles don't affect other pages
+            };
+            window.addEventListener('afterprint', cleanup);
+            window.print();
+        }, 150);
+    };
+
     return (
         <div className="animate-fade-in">
+            {/* Single global print area — always mounted regardless of active sub-tab */}
+            <PrintFeeReceipt data={printData} />
+
             <div className="flex bg-muted/50 p-1.5 rounded-2xl w-fit mb-6 mx-auto sm:mx-0 print:hidden mt-2">
                 <button
                     onClick={() => setActiveTab('collect')}
@@ -1613,8 +1644,19 @@ const TuitionFeeTab: React.FC<{ feeStr: FeeStructure[]; refresh: number }> = ({ 
                 </button>
             </div>
             
-            {activeTab === 'collect' && <CollectFeeTab feeStr={feeStr} />}
-            {activeTab === 'ledger' && <LedgerTab refresh={refresh} />}
+            {activeTab === 'collect' && <CollectFeeTab 
+                feeStr={feeStr} 
+                editReceipt={editReceipt} 
+                onCancelEdit={() => setEditReceipt(null)} 
+            />}
+            {activeTab === 'ledger' && <LedgerTab 
+                refresh={refresh} 
+                onPrint={handlePrintReceipt} 
+                onEditReceipt={(h) => {
+                    setEditReceipt(h);
+                    setActiveTab('collect');
+                }}
+            />}
         </div>
     );
 };
